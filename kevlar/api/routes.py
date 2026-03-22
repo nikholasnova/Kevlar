@@ -97,7 +97,7 @@ async def _handle_message(request: Request, body: MessagesRequest):
     else:
         thinking_enabled = False
 
-    prompt_tokens = request_to_token_ids(
+    prompt_tokens, thinking_enabled = request_to_token_ids(
         temp_request, tokenizer, normalized.system,
         enable_thinking=thinking_enabled,
     )

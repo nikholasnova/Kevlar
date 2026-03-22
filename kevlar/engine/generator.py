@@ -71,6 +71,11 @@ class InferenceEngine:
                 eos_ids.update(eos)
             elif eos is not None:
                 eos_ids.add(eos)
+        # some models store extra stop tokens only in added_tokens
+        if hasattr(self.tokenizer, "added_tokens_encoder"):
+            for token_str, token_id in self.tokenizer.added_tokens_encoder.items():
+                if any(marker in token_str for marker in ["<|eot_id|>", "<|eom_id|>", "<|end_of_text|>", "<|endoftext|>", "</s>"]):
+                    eos_ids.add(token_id)
         return eos_ids
 
     async def _prefill(

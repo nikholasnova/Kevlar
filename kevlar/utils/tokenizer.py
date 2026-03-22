@@ -77,8 +77,11 @@ def request_to_token_ids(
     tokenizer,
     system_text: str,
     enable_thinking: bool = False,
-) -> mx.array:
-    """Convert an Anthropic Messages request to token IDs using the tokenizer's chat template."""
+) -> tuple[mx.array, bool]:
+    """Convert an Anthropic Messages request to token IDs using the tokenizer's chat template.
+
+    Returns (token_ids, thinking_actually_enabled).
+    """
     template_messages = []
 
     for msg in request.messages:
@@ -102,8 +105,12 @@ def request_to_token_ids(
             template_messages.append(_message_to_template_format(msg))
 
     tools = _format_tools_for_template(request.tools) if request.tools else None
+    thinking_active = False
 
-    template_kwargs = {"enable_thinking": enable_thinking}
+    # try with enable_thinking if requested, fall back gracefully
+    template_kwargs = {}
+    if enable_thinking:
+        template_kwargs["enable_thinking"] = True
 
     try:
         token_ids = tokenizer.apply_chat_template(
@@ -112,8 +119,28 @@ def request_to_token_ids(
             add_generation_prompt=True,
             **template_kwargs,
         )
+        # verify the template actually added thinking markers
+        if enable_thinking:
+            tail = tokenizer.decode(token_ids[-10:])
+            thinking_active = "<think>" in tail
+    except TypeError:
+        # model template doesn't support enable_thinking -- retry without it
+        template_kwargs.pop("enable_thinking", None)
+        try:
+            token_ids = tokenizer.apply_chat_template(
+                template_messages,
+                tools=tools,
+                add_generation_prompt=True,
+                **template_kwargs,
+            )
+        except Exception:
+            logger.warning("apply_chat_template with tools failed, falling back without tools")
+            token_ids = None
     except Exception:
         logger.warning("apply_chat_template with tools failed, falling back without tools")
+        token_ids = None
+
+    if token_ids is None:
         if tools and system_text:
             tools_text = "\n\nAvailable tools:\n" + json.dumps(tools, indent=2)
             system_text = system_text + tools_text
@@ -123,17 +150,12 @@ def request_to_token_ids(
             if first["role"] == "user":
                 first["content"] = system_text + "\n\n" + first.get("content", "")
 
-        try:
-            token_ids = tokenizer.apply_chat_template(
-                template_messages,
-                add_generation_prompt=True,
-                **template_kwargs,
-            )
-        except Exception:
-            logger.exception("Chat template application failed completely")
-            raise
+        token_ids = tokenizer.apply_chat_template(
+            template_messages,
+            add_generation_prompt=True,
+        )
 
-    return mx.array(token_ids)
+    return mx.array(token_ids), thinking_active
 
 
 _THINK_BLOCK_PATTERN = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
