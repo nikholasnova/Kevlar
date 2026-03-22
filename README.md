@@ -45,7 +45,7 @@ kevlar serve --model <hf-id-or-path> \
              --cache-dir ~/.kevlar/cache \
              --max-cache-gb 10 \
              --max-tokens 4096 \
-             --prefill-step-size 512 \
+             --prefill-step-size 4096 \
              --no-normalize
 ```
 
@@ -126,7 +126,7 @@ RoPE positional embeddings get baked into KV cache entries at insertion time. Yo
 
 Instead we solve it upstream: normalize the prompt so the prefix never changes. The volatile stuff (dates, working directory, file trees) gets moved to the end of the system prompt. Same information, same model behavior, but now the first 95% of tokens are identical across turns and the cache hits.
 
-For MoE models (like Qwen3.5-122B-A10B) the cache type is `ArraysCache` not `KVCache`. Prefix trimming is only supported for `KVCache` (dense models). MoE models get exact-match cache reuse only.
+MoE models (like Qwen3.5-122B-A10B) use a mixed cache -- `ArraysCache` for linear attention layers, `KVCache` for standard attention layers. Prefix matching works by trimming the KVCache layers while preserving the ArraysCache accumulated state.
 
 ### Memory budget (128GB M-series example)
 

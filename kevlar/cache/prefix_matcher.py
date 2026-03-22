@@ -15,8 +15,8 @@ def _hash_tokens(tokens: mx.array, length: Optional[int] = None) -> str:
     """Hash a token sequence for cache lookup."""
     if length is not None:
         tokens = tokens[:length]
-    token_bytes = tokens.tolist()
-    return hashlib.sha256(str(token_bytes).encode()).hexdigest()[:16]
+    raw = bytes(memoryview(tokens.astype(mx.int32)))
+    return hashlib.sha256(raw).hexdigest()[:16]
 
 
 def find_longest_prefix_match(

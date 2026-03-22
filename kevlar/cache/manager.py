@@ -45,8 +45,8 @@ class CacheManager:
             cache = self.clone_cache(entry.cache_state)
             return cache, match_len
 
-        if entry and match_len > 0 and _is_kvcache(entry.cache_state):
-            # partial prefix match -- only works with KVCache (not ArraysCache/MoE)
+        if entry and match_len > 0:
+            # partial prefix match -- trim KVCache layers, ArraysCache layers keep accumulated state
             logger.info("Memory cache hit (prefix): %d/%d tokens", match_len, tokens.size)
             cache = self.clone_cache(entry.cache_state)
             self._trim_cache(cache, match_len)
