@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+venv/
+.env
+*.safetensors
+
+CLAUDE.md
+MEMORY.md
+.claude/
