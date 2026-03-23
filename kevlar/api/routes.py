@@ -29,7 +29,7 @@ from kevlar.api.sse import (
     tool_use_block_start_event,
 )
 from kevlar.preprocessing.normalizer import normalize
-from kevlar.utils.tokenizer import parse_tool_calls, request_to_token_ids, strip_thinking
+from kevlar.utils.tokenizer import parse_tool_calls, request_to_token_ids, strip_thinking, strip_tool_xml
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +163,7 @@ async def _stream_response(
         finish_reason = "end_turn"
         thinking_done = not thinking_enabled
         think_buffer = ""
+        tool_region = False
 
         async for result in engine.generate(
             prompt_tokens=prompt_tokens,
@@ -190,8 +191,11 @@ async def _stream_response(
                         yield content_block_delta_event(text=after_think, index=0)
                 elif output_tokens % 20 == 0:
                     yield ping_event()
-            else:
-                yield content_block_delta_event(text=result.text, index=0)
+            elif not tool_region:
+                if "<function=" in full_text or "<tool_call>" in full_text:
+                    tool_region = True
+                else:
+                    yield content_block_delta_event(text=result.text, index=0)
 
             if result.finish_reason:
                 finish_reason = result.finish_reason
@@ -248,9 +252,10 @@ async def _complete_response(
             finish_reason = result.finish_reason
 
     clean_text = strip_thinking(full_text) if thinking_enabled else full_text
-    content: list[ContentBlock] = [TextContent(text=clean_text)]
-
     tool_calls = parse_tool_calls(clean_text) if body.tools else []
+    if tool_calls:
+        clean_text = strip_tool_xml(clean_text)
+    content: list[ContentBlock] = [TextContent(text=clean_text)]
     if tool_calls:
         finish_reason = "tool_use"
         content.extend(tool_calls)

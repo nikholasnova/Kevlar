@@ -160,6 +160,8 @@ def request_to_token_ids(
 
 _THINK_BLOCK_PATTERN = re.compile(r"<think>.*?</think>\s*", re.DOTALL)
 _THINK_TAIL_PATTERN = re.compile(r"^.*?</think>\s*", re.DOTALL)
+_TOOL_CALL_PATTERN = re.compile(r"<tool_call>\s*<function=.*?</function>\s*</tool_call>", re.DOTALL)
+_BARE_FUNC_PATTERN = re.compile(r"<function=\w+>.*?</function>", re.DOTALL)
 
 
 def strip_thinking(text: str) -> str:
@@ -174,6 +176,13 @@ def strip_thinking(text: str) -> str:
     if "</think>" in result:
         result = _THINK_TAIL_PATTERN.sub("", result)
     return result.lstrip()
+
+
+def strip_tool_xml(text: str) -> str:
+    """Remove tool call XML from text so only natural language remains."""
+    result = _TOOL_CALL_PATTERN.sub("", text)
+    result = _BARE_FUNC_PATTERN.sub("", result)
+    return re.sub(r"\n{3,}", "\n\n", result).strip()
 
 
 def parse_tool_calls(text: str) -> list[ToolUseContent]:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import httpx
@@ -29,9 +31,12 @@ class KevlarApp(rumps.App):
         if models:
             self.current_model = models[0]
 
+        self._status_item = rumps.MenuItem("Stopped")
+        self._stats_item = rumps.MenuItem("")
+
         self.menu = [
-            rumps.MenuItem("Stopped"),
-            rumps.MenuItem(""),
+            self._status_item,
+            self._stats_item,
             None,
             rumps.MenuItem("Start Server", callback=self._start_server),
             rumps.MenuItem("Stop Server", callback=self._stop_server),
@@ -44,6 +49,11 @@ class KevlarApp(rumps.App):
             None,
             rumps.MenuItem("Quit", callback=self._quit),
         ]
+
+        self._server_state = {"running": False, "data": None}
+        self._state_lock = threading.Lock()
+        t = threading.Thread(target=self._poll_loop, daemon=True)
+        t.start()
 
     def _build_model_submenu(self) -> rumps.MenuItem:
         sub = rumps.MenuItem("Switch Model")
@@ -70,53 +80,46 @@ class KevlarApp(rumps.App):
             old.add(rumps.MenuItem("Add Model...", callback=self._add_model))
             old.add(rumps.MenuItem("Remove Model...", callback=self._remove_model))
 
-    @rumps.timer(5)
-    def _poll_status(self, _):
-        try:
-            status_item = self.menu.get("Stopped")
-            stats_item = self.menu.get("")
-
-            # Check if server is actually running via HTTP first
-            server_running = False
+    def _poll_loop(self):
+        while True:
             try:
-                url = f"http://{self.config.host}:{self.config.port}/v1/status"
-                resp = httpx.get(url, timeout=3)
+                resp = httpx.get(
+                    f"http://{self.config.host}:{self.config.port}/v1/status",
+                    timeout=3,
+                )
                 resp.raise_for_status()
-                data = resp.json()
-                server_running = True
+                with self._state_lock:
+                    self._server_state = {"running": True, "data": resp.json()}
             except Exception:
-                pass
+                with self._state_lock:
+                    self._server_state = {"running": False, "data": None}
+            time.sleep(5)
 
-            if server_running:
-                # Check if our tracked process is still alive
+    @rumps.timer(2)
+    def _update_ui(self, _):
+        try:
+            with self._state_lock:
+                state = dict(self._server_state)
+
+            if state["running"]:
                 if self.server_process is not None and self.server_process.poll() is not None:
                     self.server_process = None
 
+                data = state["data"]
                 model_name = _short_name(data.get("model", "unknown"))
-                if status_item:
-                    status_item.title = f"Running - {model_name}"
+                self._status_item.title = f"Running - {model_name}"
 
                 cache = data.get("cache", {})
                 mem_entries = cache.get("memory_entries", 0)
                 mem_mb = cache.get("memory_bytes", 0) / 1e6
-                if stats_item:
-                    stats_item.title = f"Cache: {mem_entries} entries ({mem_mb:.0f} MB)"
-                return
-
-            # No server detected via HTTP
-            if self.server_process is not None:
-                # We tracked a process but it's dead
-                self.server_process = None
-                if status_item:
-                    status_item.title = "Stopped (crashed)"
-                if stats_item:
-                    stats_item.title = ""
-                return
-
-            if status_item:
-                status_item.title = "Stopped"
-            if stats_item:
-                stats_item.title = ""
+                self._stats_item.title = f"Cache: {mem_entries} entries ({mem_mb:.0f} MB)"
+            else:
+                if self.server_process is not None:
+                    self.server_process = None
+                    self._status_item.title = "Stopped (crashed)"
+                else:
+                    self._status_item.title = "Stopped"
+                self._stats_item.title = ""
         except Exception:
             pass
 

@@ -143,6 +143,23 @@ KV cache costs ~24 KB per token. A 17k token conversation uses ~0.5 GB, a 128k c
 
 KV caches checkpoint to disk as safetensors. On an M-series NVMe (~7GB/s read) a 3GB quantized cache loads in under 500ms. Useful for resuming sessions or switching between projects. Cached in `~/.kevlar/cache/<model-name>/` (isolated per model) with LRU eviction at a configurable size cap (default 10GB per model).
 
+## Example: multi-step agentic task
+
+Qwen3.5-122B-A10B-4bit on M5 Max 128GB, running through Claude Code via Kevlar:
+
+**Prompt:** 5-part system diagnostic -- explain the Monty Hall Problem, create a recursive Fibonacci with timing decorator, refactor to iterative, identify 3 edge cases, self-assess confidence.
+
+| Metric | Value |
+|--------|-------|
+| Model | Qwen3.5-122B-A10B (MoE, 10B active) |
+| Total time | 84 seconds |
+| Cache hit rate | 99.8% (subsequent turns) |
+| Cold prefill | ~22s first turn, <1s cached turns |
+| Tasks completed | 5/5 (reasoning, file I/O, refactoring, analysis, self-assessment) |
+| Tool calls | file creation, file read, two file edits |
+
+The model correctly explained the probability paradox, wrote working Python with a decorator, refactored recursion to iteration, identified memory/validation/bignum edge cases, and self-assessed at 95/100 confidence -- all autonomously through Claude Code's tool-use loop.
+
 ## Limitations
 
 - Single request at a time. UMA means parallel inference just fights over the same memory bandwidth. Claude Code's concurrent no-tools request is fast-pathed to avoid blocking the main request.
