@@ -2,9 +2,9 @@
 
 Local MLX inference server for Apple Silicon. Exposes an Anthropic-compatible `/v1/messages` endpoint so Claude Code (or anything that speaks the Anthropic Messages API) can hit local models instead of the cloud.
 
-The main thing it does differently: **smart KV cache management**. Claude Code dynamically injects timestamps, file trees, and system reminders at the top of every prompt. Standard inferencers see this as a brand new conversation and throw away the entire KV cache, forcing a full re-prefill on every turn. On a 50k token context thats 15-30 seconds before the first response token.
+The main thing it does differently: **smart KV cache management**. Claude Code dynamically injects timestamps, file trees, and system reminders into every prompt. Standard inferencers see this as a brand new conversation and throw away the entire KV cache, forcing a full re-prefill on every turn. On an 18k token context thats 20-50 seconds before the first response token depending on model size.
 
-Kevlar fixes this by normalizing prompts before they hit the cache -- volatile content gets moved after stable content so the token prefix stays constant across turns. Cache hit rate goes from ~0% to ~90%+.
+Kevlar fixes this by normalizing prompts before they hit the cache -- volatile content gets moved after stable content so the token prefix stays constant across turns. Cache hit rate goes from 0% to 99%+ on subsequent turns, bringing prefill down to under a second.
 
 ## How it works
 
@@ -18,7 +18,7 @@ Kevlar fixes this by normalizing prompts before they hit the cache -- volatile c
 ## Install
 
 ```
-git clone <repo-url>
+git clone https://github.com/nikholasnova/Kevlar.git
 cd Kevlar
 python3 -m venv .venv
 source .venv/bin/activate
@@ -35,8 +35,8 @@ Requires macOS with Apple Silicon. Needs `mlx` and `mlx-lm` which are Apple Sili
 # start server (default model: Qwen 3.5 122B-A10B 4-bit)
 kevlar serve
 
-# pick your model
-kevlar serve --model mlx-community/Qwen2.5-Coder-32B-Instruct-4bit
+# pick your model (any MLX-compatible model works)
+kevlar serve --model mlx-community/Qwen3.5-27B-4bit
 
 # all options
 kevlar serve --model <hf-id-or-path> \
@@ -118,7 +118,9 @@ kevlar/
 
 ### Thinking mode
 
-Models like Qwen3.5 generate chain-of-thought reasoning by default. Kevlar lets the model think (produces better results) but strips the `<think>...</think>` block from the response so Claude Code only sees the actual answer. The thinking tokens still count toward generation but are invisible to the client.
+Models with chain-of-thought reasoning (Qwen3.5, DeepSeek, etc.) generate thinking traces before answering. Kevlar detects whether the model's chat template actually produces thinking markers and strips them automatically. Models without thinking support are handled transparently -- no configuration needed.
+
+The thinking budget is capped at 2000 tokens locally (Claude Code requests 32k which is impractical for local inference).
 
 ### Cache strategy
 
@@ -128,22 +130,23 @@ Instead we solve it upstream: normalize the prompt so the prefix never changes. 
 
 MoE models (like Qwen3.5-122B-A10B) use a mixed cache -- `ArraysCache` for linear attention layers, `KVCache` for standard attention layers. Prefix matching works by trimming the KVCache layers while preserving the ArraysCache accumulated state.
 
-### Memory budget (128GB M-series example)
+### Memory budget (128GB M5 Max example)
 
-| Model | Weights | KV budget | Decode speed |
-|-------|---------|-----------|-------------|
-| 32B dense 4-bit | ~16GB | ~104GB | ~30 tok/s |
-| 72B dense 4-bit | ~36GB | ~84GB | ~15 tok/s |
-| 122B MoE 4-bit (10B active) | ~61GB | ~59GB | ~60 tok/s |
+| Model | Weights | KV budget | Prefill | Decode |
+|-------|---------|-----------|---------|--------|
+| 27B dense 4-bit | ~14GB | ~106GB | ~800 tok/s | ~28 tok/s |
+| 122B MoE 4-bit (10B active) | ~61GB | ~59GB | ~1400 tok/s | ~50 tok/s |
+
+KV cache costs ~24 KB per token. A 17k token conversation uses ~0.5 GB, a 128k context uses ~3.2 GB.
 
 ### SSD persistence
 
-KV caches checkpoint to disk as safetensors. On an M-series NVMe (~7GB/s read) a 3GB quantized cache loads in under 500ms. Useful for resuming sessions or switching between projects. Cached in `~/.kevlar/cache/` with LRU eviction.
+KV caches checkpoint to disk as safetensors. On an M-series NVMe (~7GB/s read) a 3GB quantized cache loads in under 500ms. Useful for resuming sessions or switching between projects. Cached in `~/.kevlar/cache/<model-name>/` (isolated per model) with LRU eviction at a configurable size cap (default 10GB per model).
 
 ## Limitations
 
-- Single request at a time. UMA means parallel inference just fights over the same memory bandwidth.
+- Single request at a time. UMA means parallel inference just fights over the same memory bandwidth. Claude Code's concurrent no-tools request is fast-pathed to avoid blocking the main request.
 - Header normalization patterns are tuned for Claude Code. Other clients with different dynamic headers may need pattern updates in `kevlar/preprocessing/patterns.py`.
-- Model must support `apply_chat_template` for tool calling to work correctly.
-- Thinking token budget: models with chain-of-thought can spend hundreds of tokens reasoning before answering. Set `max_tokens` high enough to accommodate both thinking and the actual response.
+- Model must support `apply_chat_template`. Tool calling works via Qwen XML format (`<function=Name>`) and bare JSON -- models with other tool formats may need parser additions in `kevlar/utils/tokenizer.py`.
+- Models that don't support multi-tool definitions (e.g. Llama 3.3) won't work with Claude Code's 26-tool setup.
 - No vision/multimodal support.

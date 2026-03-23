@@ -72,47 +72,53 @@ class KevlarApp(rumps.App):
 
     @rumps.timer(5)
     def _poll_status(self, _):
-        status_item = self.menu.get("Stopped") or self.menu.get("Starting...") or next(
-            (v for k, v in self.menu.items() if k.startswith("Running") or k.startswith("Stopped")), None
-        )
-        stats_item = self.menu.get("") or next(
-            (v for k, v in self.menu.items() if k.startswith("Cache:")), None
-        )
+        try:
+            status_item = self.menu.get("Stopped")
+            stats_item = self.menu.get("")
 
-        if self.server_process is None:
+            # Check if server is actually running via HTTP first
+            server_running = False
+            try:
+                url = f"http://{self.config.host}:{self.config.port}/v1/status"
+                resp = httpx.get(url, timeout=3)
+                resp.raise_for_status()
+                data = resp.json()
+                server_running = True
+            except Exception:
+                pass
+
+            if server_running:
+                # Check if our tracked process is still alive
+                if self.server_process is not None and self.server_process.poll() is not None:
+                    self.server_process = None
+
+                model_name = _short_name(data.get("model", "unknown"))
+                if status_item:
+                    status_item.title = f"Running - {model_name}"
+
+                cache = data.get("cache", {})
+                mem_entries = cache.get("memory_entries", 0)
+                mem_mb = cache.get("memory_bytes", 0) / 1e6
+                if stats_item:
+                    stats_item.title = f"Cache: {mem_entries} entries ({mem_mb:.0f} MB)"
+                return
+
+            # No server detected via HTTP
+            if self.server_process is not None:
+                # We tracked a process but it's dead
+                self.server_process = None
+                if status_item:
+                    status_item.title = "Stopped (crashed)"
+                if stats_item:
+                    stats_item.title = ""
+                return
+
             if status_item:
                 status_item.title = "Stopped"
             if stats_item:
                 stats_item.title = ""
-            return
-
-        if self.server_process.poll() is not None:
-            self.server_process = None
-            if status_item:
-                status_item.title = "Stopped (crashed)"
-            if stats_item:
-                stats_item.title = ""
-            return
-
-        try:
-            url = f"http://{self.config.host}:{self.config.port}/v1/status"
-            resp = httpx.get(url, timeout=3)
-            data = resp.json()
-
-            model_name = _short_name(data.get("model", "unknown"))
-            if status_item:
-                status_item.title = f"Running - {model_name}"
-
-            cache = data.get("cache", {})
-            mem_entries = cache.get("memory_entries", 0)
-            mem_mb = cache.get("memory_bytes", 0) / 1e6
-            if stats_item:
-                stats_item.title = f"Cache: {mem_entries} entries ({mem_mb:.0f} MB)"
         except Exception:
-            if status_item:
-                status_item.title = "Running (loading...)"
-            if stats_item:
-                stats_item.title = ""
+            pass
 
     def _start_server(self, _):
         if self.server_process and self.server_process.poll() is None:

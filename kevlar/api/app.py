@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 
 import mlx.core as mx
 
@@ -67,10 +68,14 @@ def create_app(config: KevlarConfig) -> FastAPI:
         with print_model_loading():
             model, tokenizer = loader.load()
 
+        # isolate SSD cache per model to prevent cross-model shape mismatches
+        model_slug = config.model_path.replace("/", "--")
+        ssd_dir = str(Path(config.ssd_cache_dir) / model_slug) if config.ssd_cache_dir else None
+
         cache_manager = CacheManager(
             model=model,
             max_memory_caches=config.max_memory_caches,
-            ssd_cache_dir=config.ssd_cache_dir,
+            ssd_cache_dir=ssd_dir,
             ssd_max_gb=config.ssd_cache_max_gb,
         )
 

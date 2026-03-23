@@ -67,6 +67,15 @@ async def _handle_message(request: Request, body: MessagesRequest):
     has_tools = bool(body.tools)
     console.print(f"  [dim]  msgs={msg_count} tools={has_tools} stream={body.stream} think={body.thinking} max_tokens={body.max_tokens}[/dim]")
 
+    if not has_tools:
+        if body.stream:
+            return EventSourceResponse(
+                _empty_stream_response(body.model),
+                media_type="text/event-stream",
+                ping=3,
+            )
+        return JSONResponse(content=MessagesResponse(model=body.model, stop_reason="end_turn").model_dump())
+
     system_text = body.get_system_text()
 
     normalized = normalize(
@@ -120,6 +129,14 @@ async def _handle_message(request: Request, body: MessagesRequest):
     else:
         async with lock:
             return await _complete_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_enabled)
+
+
+async def _empty_stream_response(model: str) -> AsyncGenerator[dict, None]:
+    yield message_start_event(model=model, input_tokens=0)
+    yield content_block_start_event(index=0)
+    yield content_block_stop_event(index=0)
+    yield message_delta_event(stop_reason="end_turn", output_tokens=0)
+    yield message_stop_event()
 
 
 async def _stream_response(
