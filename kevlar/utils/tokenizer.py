@@ -178,6 +178,30 @@ def strip_thinking(text: str) -> str:
     return result.lstrip()
 
 
+def extract_thinking(text: str) -> tuple[str, str]:
+    """Split model output into (thinking_text, remaining_text).
+
+    Returns ("", text) if no thinking block found.
+    """
+    # Full <think>...</think> block present
+    match = _THINK_BLOCK_PATTERN.search(text)
+    if match:
+        thinking = re.sub(r"^<think>|</think>\s*$", "", match.group(0), flags=re.DOTALL).strip()
+        remaining = (text[:match.start()] + text[match.end():]).strip()
+        return thinking, remaining
+
+    # Output starts inside think block (prompt ended with <think>)
+    if "</think>" in text:
+        parts = text.split("</think>", 1)
+        return parts[0].strip(), parts[1].strip()
+
+    # Entirely inside think block (never closed)
+    if text.lstrip().startswith("<think>"):
+        return text.lstrip()[len("<think>"):].strip(), ""
+
+    return "", text
+
+
 def strip_tool_xml(text: str) -> str:
     """Remove tool call XML from text so only natural language remains."""
     result = _TOOL_CALL_PATTERN.sub("", text)

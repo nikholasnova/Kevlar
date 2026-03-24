@@ -17,6 +17,8 @@ from kevlar.api.models import (
     PingEvent,
     TextContent,
     TextDelta,
+    ThinkingContent,
+    ThinkingDelta,
     ToolUseContent,
     Usage,
 )
@@ -49,6 +51,22 @@ def content_block_start_event(index: int = 0) -> dict:
         content_block=TextContent(text=""),
     )
     return _sse("content_block_start", event)
+
+
+def thinking_block_start_event(index: int = 0) -> dict:
+    event = ContentBlockStartEvent(
+        index=index,
+        content_block=ThinkingContent(thinking=""),
+    )
+    return _sse("content_block_start", event)
+
+
+def thinking_delta_event(thinking: str, index: int = 0) -> dict:
+    event = ContentBlockDeltaEvent(
+        index=index,
+        delta=ThinkingDelta(thinking=thinking),
+    )
+    return _sse("content_block_delta", event)
 
 
 def tool_use_block_start_event(index: int, tool_id: str, name: str) -> dict:

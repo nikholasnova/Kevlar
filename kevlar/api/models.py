@@ -31,7 +31,13 @@ class ToolResultContent(BaseModel):
     is_error: bool = False
 
 
-ContentBlock = Union[TextContent, ToolUseContent, ToolResultContent]
+class ThinkingContent(BaseModel):
+    model_config = {"extra": "allow"}
+    type: Literal["thinking"] = "thinking"
+    thinking: str
+
+
+ContentBlock = Union[TextContent, ToolUseContent, ToolResultContent, ThinkingContent]
 
 
 class Message(BaseModel):
@@ -127,10 +133,15 @@ class InputJsonDelta(BaseModel):
     partial_json: str
 
 
+class ThinkingDelta(BaseModel):
+    type: Literal["thinking_delta"] = "thinking_delta"
+    thinking: str
+
+
 class ContentBlockDeltaEvent(BaseModel):
     type: Literal["content_block_delta"] = "content_block_delta"
     index: int
-    delta: Union[TextDelta, InputJsonDelta]
+    delta: Union[TextDelta, InputJsonDelta, ThinkingDelta]
 
 
 class ContentBlockStopEvent(BaseModel):

@@ -11,9 +11,11 @@ from sse_starlette.sse import EventSourceResponse
 
 from kevlar.api.models import (
     ContentBlock,
+    Message,
     MessagesRequest,
     MessagesResponse,
     TextContent,
+    ThinkingContent,
     ToolUseContent,
     Usage,
 )
@@ -26,10 +28,12 @@ from kevlar.api.sse import (
     message_start_event,
     message_stop_event,
     ping_event,
+    thinking_block_start_event,
+    thinking_delta_event,
     tool_use_block_start_event,
 )
 from kevlar.preprocessing.normalizer import normalize
-from kevlar.utils.tokenizer import parse_tool_calls, request_to_token_ids, strip_thinking, strip_tool_xml
+from kevlar.utils.tokenizer import extract_thinking, parse_tool_calls, request_to_token_ids, strip_thinking, strip_tool_xml
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +90,7 @@ async def _handle_message(request: Request, body: MessagesRequest):
 
     temp_request = body.model_copy(update={
         "system": normalized.system,
+        "messages": [Message(**m) for m in normalized.messages],
     })
 
     # parse thinking config -- cap budget for local models
@@ -156,13 +161,19 @@ async def _stream_response(
     if lock:
         await lock.acquire()
     try:
-        yield content_block_start_event(index=0)
+        if thinking_enabled:
+            yield thinking_block_start_event(index=0)
+            text_index = 1
+        else:
+            yield content_block_start_event(index=0)
+            text_index = 0
 
         full_text = ""
         output_tokens = 0
         finish_reason = "end_turn"
         thinking_done = not thinking_enabled
         think_buffer = ""
+        text_block_opened = not thinking_enabled
         tool_region = False
 
         async for result in engine.generate(
@@ -186,33 +197,43 @@ async def _stream_response(
                 think_buffer += result.text
                 if "</think>" in think_buffer:
                     thinking_done = True
+                    raw_thinking = think_buffer.split("</think>", 1)[0].strip()
+                    if raw_thinking:
+                        yield thinking_delta_event(thinking=raw_thinking, index=0)
+                    yield content_block_stop_event(index=0)
+                    yield content_block_start_event(index=text_index)
+                    text_block_opened = True
                     after_think = think_buffer.split("</think>", 1)[1].lstrip()
                     if after_think:
-                        yield content_block_delta_event(text=after_think, index=0)
+                        yield content_block_delta_event(text=after_think, index=text_index)
                 elif output_tokens % 20 == 0:
                     yield ping_event()
             elif not tool_region:
                 if "<function=" in full_text or "<tool_call>" in full_text:
                     tool_region = True
                 else:
-                    yield content_block_delta_event(text=result.text, index=0)
+                    yield content_block_delta_event(text=result.text, index=text_index)
 
             if result.finish_reason:
                 finish_reason = result.finish_reason
 
         if not thinking_done and think_buffer:
-            cleaned = strip_thinking(think_buffer)
-            if cleaned:
-                yield content_block_delta_event(text=cleaned, index=0)
+            raw_thinking = think_buffer.strip()
+            if raw_thinking:
+                yield thinking_delta_event(thinking=raw_thinking, index=0)
+            yield content_block_stop_event(index=0)
+            yield content_block_start_event(index=text_index)
+            text_block_opened = True
 
         clean_text = strip_thinking(full_text) if thinking_enabled else full_text
         tool_calls = parse_tool_calls(clean_text) if body.tools else []
         if tool_calls:
             finish_reason = "tool_use"
 
-        yield content_block_stop_event(index=0)
+        yield content_block_stop_event(index=text_index)
 
-        for i, tc in enumerate(tool_calls, start=1):
+        tool_start = text_index + 1
+        for i, tc in enumerate(tool_calls, start=tool_start):
             yield tool_use_block_start_event(index=i, tool_id=tc.id, name=tc.name)
             yield input_json_delta_event(partial_json=json.dumps(tc.input), index=i)
             yield content_block_stop_event(index=i)
@@ -251,11 +272,19 @@ async def _complete_response(
         if result.finish_reason:
             finish_reason = result.finish_reason
 
-    clean_text = strip_thinking(full_text) if thinking_enabled else full_text
-    tool_calls = parse_tool_calls(clean_text) if body.tools else []
-    if tool_calls:
-        clean_text = strip_tool_xml(clean_text)
-    content: list[ContentBlock] = [TextContent(text=clean_text)]
+    content: list[ContentBlock] = []
+
+    if thinking_enabled:
+        thinking_text, remaining = extract_thinking(full_text)
+        if thinking_text:
+            content.append(ThinkingContent(thinking=thinking_text))
+        tool_calls = parse_tool_calls(strip_thinking(full_text)) if body.tools else []
+        clean_text = strip_tool_xml(remaining) if tool_calls else remaining
+    else:
+        tool_calls = parse_tool_calls(full_text) if body.tools else []
+        clean_text = strip_tool_xml(full_text) if tool_calls else full_text
+
+    content.append(TextContent(text=clean_text))
     if tool_calls:
         finish_reason = "tool_use"
         content.extend(tool_calls)

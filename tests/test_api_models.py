@@ -10,6 +10,8 @@ from kevlar.api.models import (
     SystemBlock,
     TextContent,
     TextDelta,
+    ThinkingContent,
+    ThinkingDelta,
     ToolDefinition,
     ToolInputSchema,
     ToolResultContent,
@@ -121,6 +123,38 @@ class TestMessagesResponse:
         assert r1.id.startswith("msg_")
 
 
+class TestThinkingContent:
+    def test_serialization(self):
+        tc = ThinkingContent(thinking="Let me reason about this")
+        data = tc.model_dump()
+        assert data["type"] == "thinking"
+        assert data["thinking"] == "Let me reason about this"
+
+    def test_in_message_content(self):
+        msg = Message(
+            role="assistant",
+            content=[
+                ThinkingContent(thinking="reasoning"),
+                TextContent(text="answer"),
+            ],
+        )
+        assert len(msg.content) == 2
+        assert msg.content[0].type == "thinking"
+
+    def test_in_response(self):
+        resp = MessagesResponse(
+            model="test",
+            content=[
+                ThinkingContent(thinking="step by step"),
+                TextContent(text="the answer"),
+            ],
+            stop_reason="end_turn",
+        )
+        data = resp.model_dump()
+        assert data["content"][0]["type"] == "thinking"
+        assert data["content"][1]["type"] == "text"
+
+
 class TestSSEModels:
     def test_content_block_delta(self):
         event = ContentBlockDeltaEvent(
@@ -130,3 +164,13 @@ class TestSSEModels:
         data = event.model_dump()
         assert data["type"] == "content_block_delta"
         assert data["delta"]["text"] == "Hello"
+
+    def test_thinking_delta(self):
+        event = ContentBlockDeltaEvent(
+            index=0,
+            delta=ThinkingDelta(thinking="reasoning step"),
+        )
+        data = event.model_dump()
+        assert data["type"] == "content_block_delta"
+        assert data["delta"]["type"] == "thinking_delta"
+        assert data["delta"]["thinking"] == "reasoning step"
