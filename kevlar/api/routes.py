@@ -96,7 +96,7 @@ async def _handle_message(request: Request, body: MessagesRequest):
 
     # parse thinking config -- cap budget for local models
     # claude code sends budget_tokens=31999 which is way too much for local inference
-    MAX_THINKING_BUDGET = 2000
+    MAX_THINKING_BUDGET = 4000
     thinking_enabled = True
     thinking_budget = 0
     thinking_display = "summarized"

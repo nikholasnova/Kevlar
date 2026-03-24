@@ -12,8 +12,8 @@ Kevlar fixes this by normalizing prompts before they hit the cache -- volatile c
 2. Prompt preprocessor extracts volatile sections (timestamps, `<system-reminder>` blocks, file trees) and relocates them after the stable context
 3. Cache manager checks for prefix match in memory LRU, then SSD
 4. Only the changed tokens get prefilled -- the rest comes from cache
-5. Thinking/reasoning traces are stripped from model output before sending the response (model still thinks internally for better quality)
-6. Response streams back as Anthropic SSE events
+5. Thinking traces stream as proper Anthropic thinking content blocks (expandable in Claude Code)
+6. Response streams back as Anthropic SSE events with signature deltas, cache metrics, and stop sequence reporting
 
 ## Install
 
@@ -36,7 +36,7 @@ Requires macOS with Apple Silicon. Needs `mlx` and `mlx-lm` which are Apple Sili
 kevlar serve
 
 # pick your model (any MLX-compatible model works)
-kevlar serve --model mlx-community/Qwen3.5-27B-4bit
+kevlar serve --model mlx-community/Qwen3-Coder-Next-8bit
 
 # all options
 kevlar serve --model <hf-id-or-path> \
@@ -103,7 +103,7 @@ kevlar/
   preprocessing/  Prompt normalization (the cache fix)
   cache/          LRU memory cache, prefix matching, SSD persistence
   cli/            Rich console output (banner, stats, status panels)
-  utils/          Chat template translation, thinking strip
+  utils/          Chat template translation, thinking extraction, tool call parsing
   menubar.py      macOS menu bar app (rumps)
   menubar_models.py  Model list persistence
 ```
@@ -118,9 +118,9 @@ kevlar/
 
 ### Thinking mode
 
-Models with chain-of-thought reasoning (Qwen3.5, DeepSeek, etc.) generate thinking traces before answering. Kevlar detects whether the model's chat template actually produces thinking markers and strips them automatically. Models without thinking support are handled transparently -- no configuration needed.
+Models with chain-of-thought reasoning (Qwen3.5, Qwen3-Coder-Next, DeepSeek, etc.) generate thinking traces before answering. Kevlar detects whether the model's chat template produces `<think>` markers and streams them as proper Anthropic thinking content blocks -- visible and expandable in Claude Code's UI. The `thinking.display` field is respected: `"summarized"` (default) shows thinking, `"omitted"` hides it. Models without thinking support are handled transparently.
 
-The thinking budget is capped at 2000 tokens locally (Claude Code requests 32k which is impractical for local inference).
+The thinking budget is capped at 4000 tokens locally (Claude Code requests 32k which is impractical for local inference).
 
 ### Cache strategy
 
@@ -145,20 +145,19 @@ KV caches checkpoint to disk as safetensors. On an M-series NVMe (~7GB/s read) a
 
 ## Example: multi-step agentic task
 
-Qwen3.5-122B-A10B-4bit on M5 Max 128GB, running through Claude Code via Kevlar:
+Qwen3-Coder-Next-8bit (80B MoE, 3B active) on M5 Max 128GB, running through Claude Code via Kevlar:
 
 **Prompt:** 5-part system diagnostic -- explain the Monty Hall Problem, create a recursive Fibonacci with timing decorator, refactor to iterative, identify 3 edge cases, self-assess confidence.
 
-| Metric | Value |
-|--------|-------|
-| Model | Qwen3.5-122B-A10B (MoE, 10B active) |
-| Total time | 84 seconds |
-| Cache hit rate | 99.8% (subsequent turns) |
-| Cold prefill | ~22s first turn, <1s cached turns |
-| Tasks completed | 5/5 (reasoning, file I/O, refactoring, analysis, self-assessment) |
-| Tool calls | file creation, file read, two file edits |
+| Metric | Kevlar | LM Studio (same model) |
+|--------|--------|------------------------|
+| Model | Qwen3-Coder-Next-8bit (80B MoE, 3B active) | Qwen3-Coder-Next-8bit |
+| Total time | 39 seconds | 1m 55s |
+| Cache hit rate | 99%+ (subsequent turns) | No cross-turn caching |
+| Tasks completed | 5/5 | 5/5 |
+| Tool calls | file create, read, two edits, bash run | same |
 
-The model correctly explained the probability paradox, wrote working Python with a decorator, refactored recursion to iteration, identified memory/validation/bignum edge cases, and self-assessed at 95/100 confidence -- all autonomously through Claude Code's tool-use loop.
+3x faster than LM Studio on the same model with equivalent output quality. The KV cache advantage compounds on multi-turn conversations where LM Studio re-prefills the full context every turn.
 
 ## Limitations
 
