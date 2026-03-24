@@ -173,8 +173,10 @@ async def _stream_response(
         finish_reason = "end_turn"
         thinking_done = not thinking_enabled
         think_buffer = ""
+        think_sent = 0
         text_block_opened = not thinking_enabled
         tool_region = False
+        _THINK_TAG_LEN = len("</think>")
 
         async for result in engine.generate(
             prompt_tokens=prompt_tokens,
@@ -197,17 +199,22 @@ async def _stream_response(
                 think_buffer += result.text
                 if "</think>" in think_buffer:
                     thinking_done = True
-                    raw_thinking = think_buffer.split("</think>", 1)[0].strip()
-                    if raw_thinking:
-                        yield thinking_delta_event(thinking=raw_thinking, index=0)
+                    before_tag = think_buffer.split("</think>", 1)[0]
+                    unsent = before_tag[think_sent:]
+                    if unsent:
+                        yield thinking_delta_event(thinking=unsent, index=0)
                     yield content_block_stop_event(index=0)
                     yield content_block_start_event(index=text_index)
                     text_block_opened = True
                     after_think = think_buffer.split("</think>", 1)[1].lstrip()
                     if after_think:
                         yield content_block_delta_event(text=after_think, index=text_index)
-                elif output_tokens % 20 == 0:
-                    yield ping_event()
+                else:
+                    safe_end = len(think_buffer) - _THINK_TAG_LEN
+                    if safe_end > think_sent:
+                        chunk = think_buffer[think_sent:safe_end]
+                        yield thinking_delta_event(thinking=chunk, index=0)
+                        think_sent = safe_end
             elif not tool_region:
                 if "<function=" in full_text or "<tool_call>" in full_text:
                     tool_region = True
@@ -218,9 +225,9 @@ async def _stream_response(
                 finish_reason = result.finish_reason
 
         if not thinking_done and think_buffer:
-            raw_thinking = think_buffer.strip()
-            if raw_thinking:
-                yield thinking_delta_event(thinking=raw_thinking, index=0)
+            unsent = think_buffer[think_sent:]
+            if unsent:
+                yield thinking_delta_event(thinking=unsent, index=0)
             yield content_block_stop_event(index=0)
             yield content_block_start_event(index=text_index)
             text_block_opened = True
