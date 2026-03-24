@@ -119,10 +119,6 @@ def request_to_token_ids(
             add_generation_prompt=True,
             **template_kwargs,
         )
-        # verify the template actually added thinking markers
-        if enable_thinking:
-            tail = tokenizer.decode(token_ids[-10:])
-            thinking_active = "<think>" in tail
     except TypeError:
         # model template doesn't support enable_thinking -- retry without it
         template_kwargs.pop("enable_thinking", None)
@@ -154,6 +150,20 @@ def request_to_token_ids(
             template_messages,
             add_generation_prompt=True,
         )
+
+    # TokenizerWrapper.apply_chat_template sets return_dict=False,
+    # but guard against raw tokenizers that might return BatchEncoding
+    if hasattr(token_ids, "input_ids"):
+        token_ids = token_ids["input_ids"]
+    if not isinstance(token_ids, list):
+        token_ids = list(token_ids)
+
+    if enable_thinking and token_ids:
+        try:
+            tail = tokenizer.decode(token_ids[-10:])
+            thinking_active = "<think>" in tail
+        except Exception:
+            pass
 
     return mx.array(token_ids), thinking_active
 

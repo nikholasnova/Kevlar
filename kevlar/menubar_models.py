@@ -8,6 +8,7 @@ MODELS_FILE = KEVLAR_DIR / "models.json"
 
 DEFAULT_MODELS = [
     "mlx-community/Qwen3.5-122B-A10B-4bit",
+    "mlx-community/Qwen3-Coder-Next-8bit",
 ]
 
 

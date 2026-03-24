@@ -22,6 +22,7 @@ class GenerationResult:
     text: str
     is_eos: bool
     finish_reason: Optional[str] = None
+    stop_sequence: Optional[str] = None
 
 
 @dataclass
@@ -60,6 +61,7 @@ class InferenceEngine:
         self.prefill_step_size = prefill_step_size
         self.on_complete = on_complete
         self._eos_token_ids = self._get_eos_tokens()
+        self.last_stats: Optional[GenerationStats] = None
 
     def _get_eos_tokens(self) -> set[int]:
         eos_ids = set()
@@ -137,21 +139,29 @@ class InferenceEngine:
         generated_text = ""
         stop_seqs = stop_sequences or []
         decode_start = time.perf_counter()
+        detokenizer = self.tokenizer.detokenizer
 
         for i in range(max_tokens):
             tid = token_id.item()
             stats.completion_tokens += 1
 
             is_eos = tid in self._eos_token_ids
-            piece = self.tokenizer.decode([tid]) if not is_eos else ""
+            if not is_eos:
+                detokenizer.add_token(tid)
+            piece = detokenizer.last_segment if not is_eos else ""
             generated_text += piece
 
             finish_reason = None
+            matched_stop = None
             if is_eos:
                 finish_reason = "end_turn"
-            elif any(generated_text.endswith(s) for s in stop_seqs):
-                finish_reason = "stop_sequence"
-            elif i == max_tokens - 1:
+            else:
+                for s in stop_seqs:
+                    if generated_text.endswith(s):
+                        finish_reason = "stop_sequence"
+                        matched_stop = s
+                        break
+            if not finish_reason and i == max_tokens - 1:
                 finish_reason = "max_tokens"
 
             yield GenerationResult(
@@ -159,6 +169,7 @@ class InferenceEngine:
                 text=piece,
                 is_eos=is_eos,
                 finish_reason=finish_reason,
+                stop_sequence=matched_stop,
             )
 
             if finish_reason:
@@ -167,10 +178,18 @@ class InferenceEngine:
             logits = self.model(token_id.reshape(1, 1), cache=cache)
             token_id = sample(logits[:, -1, :], temperature=temperature, top_p=top_p, top_k=top_k)
             mx.eval(token_id)
+            await asyncio.sleep(0)
+
+        detokenizer.finalize()
+        remaining_text = detokenizer.last_segment
+        if remaining_text:
+            generated_text += remaining_text
+            yield GenerationResult(token_id=0, text=remaining_text, is_eos=False)
 
         stats.decode_time_s = time.perf_counter() - decode_start
 
         self.cache_manager.checkpoint(prompt_tokens, prompt_cache)
+        self.last_stats = stats
 
         if self.on_complete:
             self.on_complete(stats)

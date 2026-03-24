@@ -7,6 +7,7 @@ from kevlar.api.models import (
     Message,
     MessagesRequest,
     MessagesResponse,
+    SignatureDelta,
     SystemBlock,
     TextContent,
     TextDelta,
@@ -174,3 +175,13 @@ class TestSSEModels:
         assert data["type"] == "content_block_delta"
         assert data["delta"]["type"] == "thinking_delta"
         assert data["delta"]["thinking"] == "reasoning step"
+
+    def test_signature_delta(self):
+        event = ContentBlockDeltaEvent(
+            index=0,
+            delta=SignatureDelta(signature="kevlar-local"),
+        )
+        data = event.model_dump()
+        assert data["type"] == "content_block_delta"
+        assert data["delta"]["type"] == "signature_delta"
+        assert data["delta"]["signature"] == "kevlar-local"

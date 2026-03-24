@@ -17,6 +17,7 @@ from kevlar.api.models import (
     PingEvent,
     TextContent,
     TextDelta,
+    SignatureDelta,
     ThinkingContent,
     ThinkingDelta,
     ToolUseContent,
@@ -35,7 +36,7 @@ def _sse(event_type: str, data: Any) -> dict:
 def message_start_event(model: str, input_tokens: int = 0) -> dict:
     response = MessagesResponse(
         model=model,
-        usage=Usage(input_tokens=input_tokens, output_tokens=1),
+        usage=Usage(input_tokens=input_tokens, output_tokens=0),
     )
     event = MessageStartEvent(message=response)
     return _sse("message_start", event)
@@ -69,6 +70,14 @@ def thinking_delta_event(thinking: str, index: int = 0) -> dict:
     return _sse("content_block_delta", event)
 
 
+def signature_delta_event(signature: str, index: int = 0) -> dict:
+    event = ContentBlockDeltaEvent(
+        index=index,
+        delta=SignatureDelta(signature=signature),
+    )
+    return _sse("content_block_delta", event)
+
+
 def tool_use_block_start_event(index: int, tool_id: str, name: str) -> dict:
     event = ContentBlockStartEvent(
         index=index,
@@ -98,9 +107,13 @@ def content_block_stop_event(index: int = 0) -> dict:
     return _sse("content_block_stop", event)
 
 
-def message_delta_event(stop_reason: str, output_tokens: int = 0) -> dict:
+def message_delta_event(
+    stop_reason: str,
+    output_tokens: int = 0,
+    stop_sequence: str = None,
+) -> dict:
     event = MessageDeltaEvent(
-        delta=MessageDeltaBody(stop_reason=stop_reason),
+        delta=MessageDeltaBody(stop_reason=stop_reason, stop_sequence=stop_sequence),
         usage=MessageDeltaUsage(output_tokens=output_tokens),
     )
     return _sse("message_delta", event)

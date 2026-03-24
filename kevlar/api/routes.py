@@ -28,6 +28,7 @@ from kevlar.api.sse import (
     message_start_event,
     message_stop_event,
     ping_event,
+    signature_delta_event,
     thinking_block_start_event,
     thinking_delta_event,
     tool_use_block_start_event,
@@ -98,6 +99,7 @@ async def _handle_message(request: Request, body: MessagesRequest):
     MAX_THINKING_BUDGET = 2000
     thinking_enabled = True
     thinking_budget = 0
+    thinking_display = "summarized"
     if body.thinking:
         thinking_type = body.thinking.get("type", "disabled")
         if thinking_type == "disabled":
@@ -108,6 +110,7 @@ async def _handle_message(request: Request, body: MessagesRequest):
                 body.thinking.get("budget_tokens", 0),
                 MAX_THINKING_BUDGET,
             )
+            thinking_display = body.thinking.get("display", "summarized")
     else:
         thinking_enabled = False
 
@@ -125,15 +128,17 @@ async def _handle_message(request: Request, body: MessagesRequest):
 
     lock = app.state._inference_lock
 
+    show_thinking = thinking_enabled and thinking_display != "omitted"
+
     if body.stream:
         return EventSourceResponse(
-            _stream_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_enabled, lock),
+            _stream_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_enabled, show_thinking, lock),
             media_type="text/event-stream",
             ping=3,
         )
     else:
         async with lock:
-            return await _complete_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_enabled)
+            return await _complete_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_enabled, show_thinking)
 
 
 async def _empty_stream_response(model: str) -> AsyncGenerator[dict, None]:
@@ -152,16 +157,16 @@ async def _stream_response(
     top_p: float,
     max_tokens: int,
     thinking_enabled: bool = False,
+    show_thinking: bool = False,
     lock: asyncio.Lock = None,
 ) -> AsyncGenerator[dict, None]:
-    # send initial events BEFORE acquiring lock so connection stays alive while waiting
     yield message_start_event(model=body.model, input_tokens=prompt_tokens.size)
     yield ping_event()
 
     if lock:
         await lock.acquire()
     try:
-        if thinking_enabled:
+        if show_thinking:
             yield thinking_block_start_event(index=0)
             text_index = 1
         else:
@@ -171,10 +176,10 @@ async def _stream_response(
         full_text = ""
         output_tokens = 0
         finish_reason = "end_turn"
+        matched_stop_seq = None
         thinking_done = not thinking_enabled
         think_buffer = ""
         think_sent = 0
-        text_block_opened = not thinking_enabled
         tool_region = False
         _THINK_TAG_LEN = len("</think>")
 
@@ -191,6 +196,7 @@ async def _stream_response(
             if not result.text:
                 if result.finish_reason:
                     finish_reason = result.finish_reason
+                    matched_stop_seq = result.stop_sequence
                 continue
 
             full_text += result.text
@@ -199,22 +205,25 @@ async def _stream_response(
                 think_buffer += result.text
                 if "</think>" in think_buffer:
                     thinking_done = True
-                    before_tag = think_buffer.split("</think>", 1)[0]
-                    unsent = before_tag[think_sent:]
-                    if unsent:
-                        yield thinking_delta_event(thinking=unsent, index=0)
-                    yield content_block_stop_event(index=0)
-                    yield content_block_start_event(index=text_index)
-                    text_block_opened = True
+                    if show_thinking:
+                        before_tag = think_buffer.split("</think>", 1)[0]
+                        unsent = before_tag[think_sent:]
+                        if unsent:
+                            yield thinking_delta_event(thinking=unsent, index=0)
+                        yield signature_delta_event(signature="kevlar-local", index=0)
+                        yield content_block_stop_event(index=0)
+                        yield content_block_start_event(index=text_index)
                     after_think = think_buffer.split("</think>", 1)[1].lstrip()
                     if after_think:
                         yield content_block_delta_event(text=after_think, index=text_index)
-                else:
+                elif show_thinking:
                     safe_end = len(think_buffer) - _THINK_TAG_LEN
                     if safe_end > think_sent:
                         chunk = think_buffer[think_sent:safe_end]
                         yield thinking_delta_event(thinking=chunk, index=0)
                         think_sent = safe_end
+                elif output_tokens % 20 == 0:
+                    yield ping_event()
             elif not tool_region:
                 if "<function=" in full_text or "<tool_call>" in full_text:
                     tool_region = True
@@ -223,14 +232,16 @@ async def _stream_response(
 
             if result.finish_reason:
                 finish_reason = result.finish_reason
+                matched_stop_seq = result.stop_sequence
 
         if not thinking_done and think_buffer:
-            unsent = think_buffer[think_sent:]
-            if unsent:
-                yield thinking_delta_event(thinking=unsent, index=0)
-            yield content_block_stop_event(index=0)
-            yield content_block_start_event(index=text_index)
-            text_block_opened = True
+            if show_thinking:
+                unsent = think_buffer[think_sent:]
+                if unsent:
+                    yield thinking_delta_event(thinking=unsent, index=0)
+                yield signature_delta_event(signature="kevlar-local", index=0)
+                yield content_block_stop_event(index=0)
+                yield content_block_start_event(index=text_index)
 
         clean_text = strip_thinking(full_text) if thinking_enabled else full_text
         tool_calls = parse_tool_calls(clean_text) if body.tools else []
@@ -245,7 +256,11 @@ async def _stream_response(
             yield input_json_delta_event(partial_json=json.dumps(tc.input), index=i)
             yield content_block_stop_event(index=i)
 
-        yield message_delta_event(stop_reason=finish_reason, output_tokens=output_tokens)
+        yield message_delta_event(
+            stop_reason=finish_reason,
+            output_tokens=output_tokens,
+            stop_sequence=matched_stop_seq,
+        )
         yield message_stop_event()
     finally:
         if lock:
@@ -260,10 +275,12 @@ async def _complete_response(
     top_p: float,
     max_tokens: int,
     thinking_enabled: bool = False,
+    show_thinking: bool = False,
 ) -> JSONResponse:
     full_text = ""
     output_tokens = 0
     finish_reason = "end_turn"
+    matched_stop_seq = None
 
     async for result in engine.generate(
         prompt_tokens=prompt_tokens,
@@ -278,12 +295,13 @@ async def _complete_response(
         output_tokens += 1
         if result.finish_reason:
             finish_reason = result.finish_reason
+            matched_stop_seq = result.stop_sequence
 
     content: list[ContentBlock] = []
 
     if thinking_enabled:
         thinking_text, remaining = extract_thinking(full_text)
-        if thinking_text:
+        if thinking_text and show_thinking:
             content.append(ThinkingContent(thinking=thinking_text))
         tool_calls = parse_tool_calls(strip_thinking(full_text)) if body.tools else []
         clean_text = strip_tool_xml(remaining) if tool_calls else remaining
@@ -296,13 +314,19 @@ async def _complete_response(
         finish_reason = "tool_use"
         content.extend(tool_calls)
 
+    stats = engine.last_stats
+    cache_hit = stats.cache_hit_tokens if stats else 0
+
     response = MessagesResponse(
         model=body.model,
         content=content,
         stop_reason=finish_reason,
+        stop_sequence=matched_stop_seq,
         usage=Usage(
             input_tokens=prompt_tokens.size,
             output_tokens=output_tokens,
+            cache_read_input_tokens=cache_hit,
+            cache_creation_input_tokens=prompt_tokens.size - cache_hit,
         ),
     )
 

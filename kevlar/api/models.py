@@ -138,10 +138,15 @@ class ThinkingDelta(BaseModel):
     thinking: str
 
 
+class SignatureDelta(BaseModel):
+    type: Literal["signature_delta"] = "signature_delta"
+    signature: str
+
+
 class ContentBlockDeltaEvent(BaseModel):
     type: Literal["content_block_delta"] = "content_block_delta"
     index: int
-    delta: Union[TextDelta, InputJsonDelta, ThinkingDelta]
+    delta: Union[TextDelta, InputJsonDelta, ThinkingDelta, SignatureDelta]
 
 
 class ContentBlockStopEvent(BaseModel):
