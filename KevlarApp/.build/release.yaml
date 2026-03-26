@@ -1,0 +1,66 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "KevlarApp-arm64-apple-macosx-release.exe": ["<KevlarApp-arm64-apple-macosx-release.exe>"]
+  "KevlarApp-arm64-apple-macosx-release.module": ["<KevlarApp-arm64-apple-macosx-release.module>"]
+  "PackageStructure": ["<PackageStructure>"]
+  "main": ["<KevlarApp-arm64-apple-macosx-release.exe>","<KevlarApp-arm64-apple-macosx-release.module>"]
+  "test": ["<KevlarApp-arm64-apple-macosx-release.exe>","<KevlarApp-arm64-apple-macosx-release.module>"]
+default: "main"
+nodes:
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+commands:
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/KevlarApp.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/ModelPickerView.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/ServerManager.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/ServerStatus.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/SettingsView.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/StatusView.swift"]
+    outputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/sources"]
+    description: "Write auxiliary file /Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/sources"
+
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.product/Objects.LinkFileList":
+    tool: write-auxiliary-file
+    inputs: ["<link-file-list>","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/KevlarApp.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ModelPickerView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ServerManager.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ServerStatus.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/SettingsView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/StatusView.swift.o"]
+    outputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.product/Objects.LinkFileList"]
+    description: "Write auxiliary file /Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.product/Objects.LinkFileList"
+
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"]
+    outputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt"
+
+  "<KevlarApp-arm64-apple-macosx-release.exe>":
+    tool: phony
+    inputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp"]
+    outputs: ["<KevlarApp-arm64-apple-macosx-release.exe>"]
+
+  "<KevlarApp-arm64-apple-macosx-release.module>":
+    tool: phony
+    inputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/KevlarApp.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ModelPickerView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ServerManager.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ServerStatus.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/SettingsView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/StatusView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/Modules/KevlarApp.swiftmodule"]
+    outputs: ["<KevlarApp-arm64-apple-macosx-release.module>"]
+
+  "C.KevlarApp-arm64-apple-macosx-release.exe":
+    tool: shell
+    inputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/KevlarApp.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ModelPickerView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ServerManager.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ServerStatus.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/SettingsView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/StatusView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.product/Objects.LinkFileList"]
+    outputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp"]
+    description: "Linking ./.build/arm64-apple-macosx/release/KevlarApp"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-L","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release","-o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp","-module-name","KevlarApp","-Xlinker","-no_warn_duplicate_libraries","-emit-executable","-Xlinker","-dead_strip","-Xlinker","-alias","-Xlinker","_KevlarApp_main","-Xlinker","_main","-Xlinker","-rpath","-Xlinker","@loader_path","@/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.product/Objects.LinkFileList","-Xlinker","-rpath","-Xlinker","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx","-target","arm64-apple-macosx14.0","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g"]
+
+  "C.KevlarApp-arm64-apple-macosx-release.module":
+    tool: shell
+    inputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/KevlarApp.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/ModelPickerView.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/ServerManager.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/ServerStatus.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/SettingsView.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/StatusView.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/sources"]
+    outputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/KevlarApp.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ModelPickerView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ServerManager.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/ServerStatus.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/SettingsView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/StatusView.swift.o","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/Modules/KevlarApp.swiftmodule"]
+    description: "Compiling Swift Module 'KevlarApp' (6 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","KevlarApp","-emit-dependencies","-emit-module","-emit-module-path","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/Modules/KevlarApp.swiftmodule","-output-file-map","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/output-file-map.json","-whole-module-optimization","-num-threads","18","-c","@/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/KevlarApp.build/sources","-I","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/Modules","-target","arm64-apple-macosx14.0","-whole-module-optimization","-num-threads","18","-serialize-diagnostics","-O","-j18","-DSWIFT_PACKAGE","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/release/ModuleCache","-parseable-output","-Xfrontend","-entry-point-function-name","-Xfrontend","KevlarApp_main","-swift-version","6","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.4.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","kevlarapp"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Package.swift","/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+

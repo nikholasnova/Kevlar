@@ -35,6 +35,7 @@ class ThinkingContent(BaseModel):
     model_config = {"extra": "allow"}
     type: Literal["thinking"] = "thinking"
     thinking: str
+    signature: str = ""
 
 
 ContentBlock = Union[TextContent, ToolUseContent, ToolResultContent, ThinkingContent]

@@ -18,3 +18,7 @@ class KevlarConfig:
     default_top_p: float = 0.9
 
     enable_header_normalization: bool = True
+
+    haiku_model_path: str = "mlx-community/Qwen3-8B-4bit"
+    haiku_port: int = 8081
+    enable_haiku: bool = False

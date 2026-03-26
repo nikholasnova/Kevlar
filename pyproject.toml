@@ -18,12 +18,10 @@ dependencies = [
     "typer>=0.9.0",
     "rich>=13.0.0",
     "httpx>=0.27.0",
-    "rumps>=0.4.0",
 ]
 
 [project.scripts]
 kevlar = "kevlar.main:main"
-kevlar-gui = "kevlar.menubar:main"
 
 [tool.setuptools.packages.find]
 include = ["kevlar*"]

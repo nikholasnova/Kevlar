@@ -36,6 +36,7 @@ def serve(
     max_tokens: int = typer.Option(KevlarConfig.default_max_tokens, help="Default max generation tokens"),
     prefill_step_size: int = typer.Option(KevlarConfig.prefill_step_size, help="Tokens per prefill chunk"),
     no_normalize: bool = typer.Option(False, "--no-normalize", is_flag=True, help="Disable header normalization"),
+    haiku_port: int = typer.Option(0, help="Port of haiku subprocess (0 = disabled)"),
 ):
     """Start the inference server."""
     from kevlar.cli.display import print_banner, print_ready, print_model_loading, console
@@ -50,6 +51,9 @@ def serve(
         prefill_step_size=prefill_step_size,
         enable_header_normalization=not no_normalize,
     )
+    if haiku_port:
+        config.haiku_port = haiku_port
+        config.enable_haiku = True
 
     print_banner(config)
 
@@ -157,6 +161,8 @@ def run(
     cache_dir: str = typer.Option(KevlarConfig.ssd_cache_dir, help="SSD cache directory"),
     max_cache_gb: float = typer.Option(KevlarConfig.ssd_cache_max_gb, help="Max SSD cache size in GB"),
     max_tokens: int = typer.Option(KevlarConfig.default_max_tokens, help="Default max generation tokens"),
+    haiku_model: str = typer.Option(KevlarConfig.haiku_model_path, help="HuggingFace model for haiku/background tasks"),
+    no_haiku: bool = typer.Option(False, "--no-haiku", is_flag=True, help="Disable haiku subprocess"),
 ):
     """Start server and launch Claude Code against it."""
     import os
@@ -167,8 +173,10 @@ def run(
     from kevlar.cli.display import console
 
     base_url = f"http://{host}:{port}"
+    haiku_port = port + 1
 
     server_proc = None
+    haiku_proc = None
     already_running = False
     try:
         resp = httpx.get(f"{base_url}/v1/status", timeout=2)
@@ -182,10 +190,10 @@ def run(
     if not already_running:
         if not model:
             model = _pick_model(console)
-        else:
-            model = model
 
         console.print(f"  Starting server with {model}...")
+
+        haiku_port_arg = ["--haiku-port", str(haiku_port)] if not no_haiku else []
         server_proc = subprocess.Popen(
             [
                 sys.executable, "-m", "kevlar.main", "serve",
@@ -195,12 +203,28 @@ def run(
                 "--cache-dir", cache_dir,
                 "--max-cache-gb", str(max_cache_gb),
                 "--max-tokens", str(max_tokens),
-            ],
+            ] + haiku_port_arg,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
-        # wait for server to be ready
+        if not no_haiku:
+            console.print(f"  Starting haiku model ({haiku_model}) on port {haiku_port}...")
+            haiku_proc = subprocess.Popen(
+                [
+                    sys.executable, "-m", "kevlar.main", "serve",
+                    "--model", haiku_model,
+                    "--host", host,
+                    "--port", str(haiku_port),
+                    "--cache-dir", cache_dir,
+                    "--max-cache-gb", "2",
+                    "--max-tokens", "8192",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+        # wait for main server
         for i in range(120):
             try:
                 httpx.get(f"{base_url}/health", timeout=2)
@@ -211,22 +235,47 @@ def run(
             console.print("  [red]Server failed to start after 120s[/red]")
             if server_proc:
                 server_proc.kill()
+            if haiku_proc:
+                haiku_proc.kill()
             raise typer.Exit(1)
 
         console.print(f"  Server ready on {base_url}")
+
+        # wait for haiku server
+        if haiku_proc:
+            haiku_base = f"http://{host}:{haiku_port}"
+            for i in range(120):
+                try:
+                    httpx.get(f"{haiku_base}/health", timeout=2)
+                    break
+                except Exception:
+                    time.sleep(1)
+            else:
+                console.print("  [yellow]Haiku server failed to start, continuing without it[/yellow]")
+                haiku_proc.kill()
+                haiku_proc = None
+
+            if haiku_proc:
+                console.print(f"  Haiku server ready on {haiku_base}")
 
     console.print("  Launching Claude Code...\n")
 
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = base_url
-    env["ANTHROPIC_API_KEY"] = ""
-    env["ANTHROPIC_AUTH_TOKEN"] = "kevlar"
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("ANTHROPIC_AUTH_TOKEN", None)
 
     try:
         result = subprocess.run(["claude", "--model", model], env=env)
     except KeyboardInterrupt:
         pass
     finally:
+        if haiku_proc:
+            haiku_proc.terminate()
+            try:
+                haiku_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                haiku_proc.kill()
         if server_proc and not already_running:
             console.print("\n  Stopping server...")
             server_proc.terminate()
@@ -234,13 +283,6 @@ def run(
                 server_proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 server_proc.kill()
-
-
-@app.command()
-def gui():
-    """Launch the menu bar app."""
-    from kevlar.menubar import main as menubar_main
-    menubar_main()
 
 
 def main():

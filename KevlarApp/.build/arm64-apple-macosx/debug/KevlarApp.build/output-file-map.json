@@ -1,0 +1,47 @@
+{
+  "": {
+    "swift-dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/primary.swiftdeps"
+  },
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/KevlarApp.swift": {
+    "dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/KevlarApp.d",
+    "object": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/KevlarApp.swift.o",
+    "swiftmodule": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/KevlarApp~partial.swiftmodule",
+    "swift-dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/KevlarApp.swiftdeps",
+    "diagnostics": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/KevlarApp.dia"
+  },
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/ModelPickerView.swift": {
+    "dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ModelPickerView.d",
+    "object": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ModelPickerView.swift.o",
+    "swiftmodule": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ModelPickerView~partial.swiftmodule",
+    "swift-dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ModelPickerView.swiftdeps",
+    "diagnostics": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ModelPickerView.dia"
+  },
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/ServerManager.swift": {
+    "dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerManager.d",
+    "object": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerManager.swift.o",
+    "swiftmodule": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerManager~partial.swiftmodule",
+    "swift-dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerManager.swiftdeps",
+    "diagnostics": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerManager.dia"
+  },
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/ServerStatus.swift": {
+    "dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerStatus.d",
+    "object": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerStatus.swift.o",
+    "swiftmodule": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerStatus~partial.swiftmodule",
+    "swift-dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerStatus.swiftdeps",
+    "diagnostics": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/ServerStatus.dia"
+  },
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/SettingsView.swift": {
+    "dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/SettingsView.d",
+    "object": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/SettingsView.swift.o",
+    "swiftmodule": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/SettingsView~partial.swiftmodule",
+    "swift-dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/SettingsView.swiftdeps",
+    "diagnostics": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/SettingsView.dia"
+  },
+  "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/Sources/StatusView.swift": {
+    "dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/StatusView.d",
+    "object": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/StatusView.swift.o",
+    "swiftmodule": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/StatusView~partial.swiftmodule",
+    "swift-dependencies": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/StatusView.swiftdeps",
+    "diagnostics": "/Users/nikholasnovachuk/Desktop/repos/Kevlar/KevlarApp/.build/arm64-apple-macosx/debug/KevlarApp.build/StatusView.dia"
+  }
+}

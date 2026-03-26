@@ -1,23 +1,12 @@
 # Kevlar
 
-Local MLX inference server for Apple Silicon. Exposes an Anthropic-compatible `/v1/messages` endpoint so Claude Code (or anything that speaks the Anthropic Messages API) can hit local models instead of the cloud.
+Anthropic Messages API compatibility layer for running Claude Code against local MLX models on Apple Silicon.
 
-The main thing it does differently: **smart KV cache management**. Claude Code dynamically injects timestamps, file trees, and system reminders into every prompt. Standard inferencers see this as a brand new conversation and throw away the entire KV cache, forcing a full re-prefill on every turn. On an 18k token context thats 20-50 seconds before the first response token depending on model size.
-
-Kevlar fixes this by normalizing prompts before they hit the cache -- volatile content gets moved after stable content so the token prefix stays constant across turns. Cache hit rate goes from 0% to 99%+ on subsequent turns, bringing prefill down to under a second.
-
-## How it works
-
-1. Request comes in as Anthropic Messages format
-2. Prompt preprocessor extracts volatile sections (timestamps, `<system-reminder>` blocks, file trees) and relocates them after the stable context
-3. Cache manager checks for prefix match in memory LRU, then SSD
-4. Only the changed tokens get prefilled -- the rest comes from cache
-5. Thinking traces stream as proper Anthropic thinking content blocks (expandable in Claude Code)
-6. Response streams back as Anthropic SSE events with signature deltas, cache metrics, and stop sequence reporting
+Handles the full API surface Claude Code depends on: tool calling, SSE streaming, thinking blocks, token counting, and the background Haiku requests used for compaction, codebase exploration, and title generation. Normalizes prompts to stabilize KV cache prefixes across turns, avoiding the full re-prefill that other local servers hit on every turn.
 
 ## Install
 
-```
+```bash
 git clone https://github.com/nikholasnova/Kevlar.git
 cd Kevlar
 python3 -m venv .venv
@@ -25,87 +14,75 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Requires macOS with Apple Silicon. Needs `mlx` and `mlx-lm` which are Apple Silicon only.
+Requires macOS with Apple Silicon (`mlx`, `mlx-lm`).
+
+## Models
+
+Any MLX-compatible model works. Browse quantized models ready for MLX at [huggingface.co/mlx-community](https://huggingface.co/mlx-community). Models download automatically on first use and are cached locally by `huggingface-hub`.
+
+Pick models based on your available memory. The main model should be the largest that fits alongside the haiku model and OS overhead. See [Memory budget](#memory-budget-128gb-example) below.
 
 ## Usage
 
-### CLI
+```bash
+kevlar                     # start both servers + launch Claude Code (default command)
+kevlar run --model mlx-community/Qwen3-Coder-Next-8bit
+kevlar run --haiku-model mlx-community/Qwen3-4B-4bit
+kevlar run --no-haiku      # disable haiku subprocess
+```
+
+`kevlar run` starts the main model server (port 8080), the haiku model server (port 8081), waits for both health checks, and launches `claude` with `ANTHROPIC_BASE_URL` pointed at the main server.
 
 ```bash
-# start server (default model: Qwen 3.5 122B-A10B 4-bit)
-kevlar serve
-
-# pick your model (any MLX-compatible model works)
-kevlar serve --model mlx-community/Qwen3-Coder-Next-8bit
-
-# all options
-kevlar serve --model <hf-id-or-path> \
-             --host 127.0.0.1 \
-             --port 8080 \
-             --cache-dir ~/.kevlar/cache \
-             --max-cache-gb 10 \
-             --max-tokens 131072 \
-             --prefill-step-size 4096 \
-             --no-normalize
+kevlar serve               # server only (no Claude Code launch)
+kevlar serve --haiku-port 8081
+kevlar status
+kevlar cache clear [-f]
 ```
 
 ### Menu bar app
 
+Native SwiftUI app that lives in the menu bar. Start/stop servers, switch models, clear cache, launch Claude Code -- all without the terminal.
+
 ```bash
-kevlar gui
+make install               # build and install to /Applications
 ```
 
-Puts a "K" icon in your macOS menu bar. Click it to start/stop the server, switch models, manage cache. Models are saved in `~/.kevlar/models.json`.
+Then open "Kevlar" from Spotlight. Requires Xcode Command Line Tools.
 
-### Other commands
-
-```bash
-kevlar run                 # start server + launch Claude Code (default command)
-kevlar status              # check if server is running, show model/cache stats
-kevlar cache clear         # wipe SSD cache (with confirmation)
-kevlar cache clear -f      # wipe without confirmation
-```
-
-### Use with Claude Code
+Manual setup without `kevlar run`:
 
 ```bash
-# quickest way -- starts server if needed, launches Claude Code with correct env
-kevlar run
-
-# or manually
 export ANTHROPIC_BASE_URL=http://localhost:8080
-export ANTHROPIC_API_KEY=sk-anything
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN
 claude
-```
-
-`kevlar run` is also the default command -- bare `kevlar` with no arguments runs it.
-
-The API key is required by Claude Code's client but Kevlar ignores it -- set it to anything.
-
-### Verify with curl
-
-```bash
-curl http://localhost:8080/health
-
-curl http://localhost:8080/v1/messages \
-  -H "Content-Type: application/json" \
-  -d '{"model":"x","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}'
-
-curl http://localhost:8080/v1/status
 ```
 
 ## Architecture
 
+Kevlar runs two processes:
+
+- **Main model** (default port 8080) -- inference for coding tasks. Tool calls, generation, thinking, streaming. Default: Qwen 3.5 122B-A10B 4-bit.
+- **Haiku model** (default port 8081) -- Claude Code background tasks: auto-compaction, Explore subagent, conversation titles, `/resume` summaries. Default: Qwen3-8B 4-bit.
+
+Separate processes because MLX cannot do concurrent inference from separate threads in the same process ([ml-explore/mlx#3078](https://github.com/ml-explore/mlx/issues/3078)). Each process gets its own Metal command queue; the GPU interleaves them.
+
+Routing: requests with "haiku" in the model name are proxied to the haiku subprocess via httpx. Everything else goes to the main engine. If the haiku subprocess is down, returns 503.
+
 ```
 kevlar/
-  api/            FastAPI server, Anthropic message models, SSE streaming
-  engine/         MLX model loading, generation loop, sampling
-  preprocessing/  Prompt normalization (the cache fix)
-  cache/          LRU memory cache, prefix matching, SSD persistence
-  cli/            Rich console output (banner, stats, status panels)
-  utils/          Chat template translation, thinking extraction, tool call parsing
-  menubar.py      macOS menu bar app (rumps)
-  menubar_models.py  Model list persistence
+  api/
+    app.py          FastAPI server, model loading, warmup
+    routes.py       /v1/messages, /v1/messages/count_tokens, haiku routing
+    models.py       Anthropic message models (Pydantic)
+    sse.py          SSE event builders
+    haiku_proxy.py  httpx proxy to haiku subprocess
+  engine/           MLX model loading, generation loop, sampling
+  preprocessing/    Prompt normalization
+  cache/            LRU memory cache, prefix matching, SSD persistence
+  cli/              Rich console output
+  utils/            Chat template translation, thinking extraction, tool call parsing
+KevlarApp/          Native SwiftUI menu bar app
 ```
 
 ### Endpoints
@@ -113,56 +90,58 @@ kevlar/
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/v1/messages` | POST | Anthropic Messages API (streaming + non-streaming) |
-| `/v1/status` | GET | Server status, model info, cache stats, uptime |
+| `/v1/messages/count_tokens` | POST | Token counting |
+| `/v1/model/load` | POST | Hot-swap model without restarting server |
+| `/v1/model/unload` | POST | Unload model to free memory |
+| `/v1/status` | GET | Model info, cache stats, uptime |
 | `/health` | GET | Health check |
 
-### Thinking mode
+### Prompt normalization
 
-Models with chain-of-thought reasoning (Qwen3.5, Qwen3-Coder-Next, DeepSeek, etc.) generate thinking traces before answering. Kevlar detects whether the model's chat template produces `<think>` markers and streams them as proper Anthropic thinking content blocks -- visible and expandable in Claude Code's UI. The `thinking.display` field is respected: `"summarized"` (default) shows thinking, `"omitted"` hides it. Models without thinking support are handled transparently.
+Claude Code injects timestamps, file trees, `<system-reminder>` blocks, and working directory paths into every prompt. These change on every turn, which invalidates the token prefix and forces a full KV cache miss.
 
-The thinking budget is capped at 8000 tokens locally (Claude Code requests 32k which is impractical for local inference). Thinking tokens have their own budget and don't consume the content output limit.
+Kevlar extracts volatile content and relocates it after the stable portion of the system prompt. The model sees the same information in a different order. The first 95% of tokens stay identical across turns, so prefix matching finds the cached KV state and only the delta needs prefilling.
 
-### Cache strategy
+RoPE embeddings are baked into KV cache entries at insertion time -- you can't rearrange cached blocks without corrupting attention. This is why normalization happens upstream rather than at the cache level.
 
-RoPE positional embeddings get baked into KV cache entries at insertion time. You cant rearrange cached blocks without corrupting attention scores. True radix/paged attention would need custom MLX kernels.
-
-Instead we solve it upstream: normalize the prompt so the prefix never changes. The volatile stuff (dates, working directory, file trees) gets moved to the end of the system prompt. Same information, same model behavior, but now the first 95% of tokens are identical across turns and the cache hits.
-
-MoE models (like Qwen3.5-122B-A10B) use a mixed cache -- `ArraysCache` for linear attention layers, `KVCache` for standard attention layers. Prefix matching works by trimming the KVCache layers while preserving the ArraysCache accumulated state.
-
-### Memory budget (128GB M5 Max example)
-
-| Model | Weights | KV budget | Prefill | Decode |
-|-------|---------|-----------|---------|--------|
-| 27B dense 4-bit | ~14GB | ~106GB | ~800 tok/s | ~28 tok/s |
-| 122B MoE 4-bit (10B active) | ~61GB | ~59GB | ~1400 tok/s | ~50 tok/s |
-
-KV cache costs ~24 KB per token. A 17k token conversation uses ~0.5 GB, a 128k context uses ~3.2 GB.
+MoE models use a mixed cache (`ArraysCache` + `KVCache` per layer). Prefix trimming preserves the ArraysCache state while slicing KVCache layers.
 
 ### SSD persistence
 
-KV caches checkpoint to disk as safetensors. On an M-series NVMe (~7GB/s read) a 3GB quantized cache loads in under 500ms. Useful for resuming sessions or switching between projects. Cached in `~/.kevlar/cache/<model-name>/` (isolated per model) with LRU eviction at a configurable size cap (default 10GB per model).
+KV caches checkpoint to `~/.kevlar/cache/<model-name>/` as safetensors. LRU eviction at a configurable cap (default 10GB per model). On M-series NVMe (~7GB/s read), a 3GB cache loads in under 500ms.
 
-## Example: multi-step agentic task
+### Thinking
 
-Qwen3-Coder-Next-8bit (80B MoE, 3B active) on M5 Max 128GB, running through Claude Code via Kevlar:
+Models with `<think>` support (Qwen3.5, Qwen3-Coder-Next, DeepSeek, etc.) stream thinking traces as Anthropic thinking content blocks. Budget capped at 16k tokens locally. Thinking tokens have a separate budget from content tokens.
 
-**Prompt:** 5-part system diagnostic -- explain the Monty Hall Problem, create a recursive Fibonacci with timing decorator, refactor to iterative, identify 3 edge cases, self-assess confidence.
+## Haiku model sizing
 
-| Metric | Kevlar | LM Studio (same model) |
-|--------|--------|------------------------|
-| Model | Qwen3-Coder-Next-8bit (80B MoE, 3B active) | Qwen3-Coder-Next-8bit |
-| Total time | 39 seconds | 1m 55s |
-| Cache hit rate | 99%+ (subsequent turns) | No cross-turn caching |
-| Tasks completed | 5/5 | 5/5 |
-| Tool calls | file create, read, two edits, bash run | same |
+The haiku subprocess handles auto-compaction (summarizing 100k+ token conversations), the Explore subagent (code search and analysis), and conversation summarization for `--resume`. These tasks require reasonable instruction following and code comprehension.
 
-3x faster than LM Studio on the same model with equivalent output quality. The KV cache advantage compounds on multi-turn conversations where LM Studio re-prefills the full context every turn.
+| Size | Viable? |
+|------|---------|
+| < 2B | No -- compaction summaries degrade over successive rounds |
+| 3-4B | Minimum viable |
+| 7-8B | Recommended |
+
+Default is `mlx-community/Qwen3-8B-4bit` (~5GB). Override with `--haiku-model`.
+
+## Memory budget (128GB example)
+
+| Component | Footprint |
+|-----------|-----------|
+| Main model (122B MoE 4-bit) | ~61GB |
+| Haiku model (8B 4-bit) | ~5GB |
+| KV cache (17k context) | ~0.5GB |
+| macOS + apps | ~10GB |
+| **Total** | **~77GB** |
+
+KV cache: ~24 KB/token. 128k context uses ~3.2 GB.
 
 ## Limitations
 
-- Single request at a time. UMA means parallel inference just fights over the same memory bandwidth. Claude Code's concurrent no-tools request is fast-pathed to avoid blocking the main request.
-- Header normalization patterns are tuned for Claude Code. Other clients with different dynamic headers may need pattern updates in `kevlar/preprocessing/patterns.py`.
-- Model must support `apply_chat_template`. Tool calling works via Qwen XML format (`<function=Name>`) and bare JSON -- models with other tool formats may need parser additions in `kevlar/utils/tokenizer.py`.
-- Models that don't support multi-tool definitions (e.g. Llama 3.3) won't work with Claude Code's 26-tool setup.
-- No vision/multimodal support.
+- Single request at a time per model process. UMA means parallel inference competes for the same memory bandwidth.
+- Normalization patterns are tuned for Claude Code's prompt structure. Other clients may need pattern updates in `kevlar/preprocessing/patterns.py`.
+- Requires `apply_chat_template` support. Tool calling parses Qwen XML (`<function=Name>`) and bare JSON. Other formats need parser additions in `kevlar/utils/tokenizer.py`.
+- Models without multi-tool support (e.g. Llama 3.3) won't work with Claude Code's 26-tool setup.
+- No vision/multimodal.

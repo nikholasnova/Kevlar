@@ -185,3 +185,62 @@ class TestSSEModels:
         assert data["type"] == "content_block_delta"
         assert data["delta"]["type"] == "signature_delta"
         assert data["delta"]["signature"] == "kevlar-local"
+
+
+class TestThinkingSignature:
+    def test_signature_field_exists(self):
+        tc = ThinkingContent(thinking="reasoning")
+        data = tc.model_dump()
+        assert "signature" in data
+        assert data["signature"] == ""
+
+    def test_signature_field_set(self):
+        tc = ThinkingContent(thinking="reasoning", signature="kevlar-local")
+        data = tc.model_dump()
+        assert data["signature"] == "kevlar-local"
+
+    def test_signature_in_response(self):
+        resp = MessagesResponse(
+            model="test",
+            content=[
+                ThinkingContent(thinking="step by step", signature="kevlar-local"),
+                TextContent(text="answer"),
+            ],
+            stop_reason="end_turn",
+        )
+        data = resp.model_dump()
+        assert data["content"][0]["signature"] == "kevlar-local"
+        assert data["content"][0]["type"] == "thinking"
+
+
+class TestSSEMessageStart:
+    def test_output_tokens_initial(self):
+        from kevlar.api.sse import message_start_event
+        event = message_start_event(model="test", input_tokens=100)
+        import json
+        data = json.loads(event["data"])
+        assert data["message"]["usage"]["output_tokens"] == 1
+        assert data["message"]["usage"]["input_tokens"] == 100
+
+    def test_cache_metrics(self):
+        from kevlar.api.sse import message_start_event
+        event = message_start_event(
+            model="test", input_tokens=100,
+            cache_read_input_tokens=80,
+            cache_creation_input_tokens=20,
+        )
+        import json
+        data = json.loads(event["data"])
+        assert data["message"]["usage"]["cache_read_input_tokens"] == 80
+        assert data["message"]["usage"]["cache_creation_input_tokens"] == 20
+
+
+class TestHaikuRouting:
+    def test_is_haiku_request(self):
+        from kevlar.api.haiku_proxy import is_haiku_request
+        assert is_haiku_request("claude-haiku-4-5-20251001") is True
+        assert is_haiku_request("claude-haiku-4-5") is True
+        assert is_haiku_request("CLAUDE-HAIKU-4-5") is True
+        assert is_haiku_request("claude-sonnet-4-6") is False
+        assert is_haiku_request("mlx-community/Qwen3-8B") is False
+        assert is_haiku_request("") is False

@@ -43,7 +43,7 @@ def message_start_event(
         model=model,
         usage=Usage(
             input_tokens=input_tokens,
-            output_tokens=0,
+            output_tokens=1,
             cache_read_input_tokens=cache_read_input_tokens,
             cache_creation_input_tokens=cache_creation_input_tokens,
         ),

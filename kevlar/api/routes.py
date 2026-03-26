@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Request
@@ -34,6 +35,7 @@ from kevlar.api.sse import (
     tool_use_block_start_event,
 )
 from kevlar.preprocessing.normalizer import normalize
+from kevlar.api.haiku_proxy import is_haiku_request, proxy_count_tokens, proxy_messages
 from kevlar.utils.tokenizer import extract_thinking, parse_tool_calls, request_to_token_ids, strip_thinking, strip_tool_xml
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,14 @@ async def create_message(request: Request, body: MessagesRequest = None):
         console.print(f"  [red]Failed to parse request body[/red]")
         console.print(f"  [dim]{raw[:500]}[/dim]")
         return JSONResponse(status_code=400, content={"error": "bad request"})
+
+    config = request.app.state.config
+    if config.enable_haiku and body.model and is_haiku_request(body.model):
+        console.print(f"  [dim]  -> proxying to haiku ({body.model})[/dim]")
+        haiku_url = f"http://{config.host}:{config.haiku_port}"
+        body_bytes = body.model_dump_json().encode()
+        return await proxy_messages(body_bytes, haiku_url, stream=body.stream or False)
+
     try:
         return await _handle_message(request, body)
     except Exception as e:
@@ -61,6 +71,51 @@ async def create_message(request: Request, body: MessagesRequest = None):
         )
 
 
+@router.post("/v1/messages/count_tokens")
+async def count_tokens(request: Request, body: MessagesRequest = None):
+    from kevlar.cli.display import console
+
+    if body is None:
+        return JSONResponse(status_code=400, content={
+            "type": "error",
+            "error": {"type": "invalid_request_error", "message": "bad request"},
+        })
+
+    config = request.app.state.config
+    if config.enable_haiku and body.model and is_haiku_request(body.model):
+        console.print(f"  [dim]  -> count_tokens proxying to haiku ({body.model})[/dim]")
+        body_bytes = body.model_dump_json().encode()
+        haiku_url = f"http://{config.host}:{config.haiku_port}"
+        return await proxy_count_tokens(body_bytes, haiku_url)
+
+    tokenizer = request.app.state.tokenizer
+
+    system_text = body.get_system_text()
+    normalized = normalize(
+        system=system_text,
+        messages=[m.model_dump() for m in body.messages],
+        enabled=config.enable_header_normalization,
+    )
+    temp_request = body.model_copy(update={
+        "system": normalized.system,
+        "messages": [Message(**m) for m in normalized.messages],
+    })
+
+    thinking_enabled = False
+    if body.thinking:
+        thinking_type = body.thinking.get("type", "disabled")
+        thinking_enabled = thinking_type in ("enabled", "adaptive")
+
+    prompt_tokens, _ = request_to_token_ids(
+        temp_request, tokenizer, normalized.system,
+        enable_thinking=thinking_enabled,
+    )
+
+    token_count = int(prompt_tokens.size)
+    console.print(f"  [dim]  count_tokens: {token_count} tokens[/dim]")
+    return JSONResponse(content={"input_tokens": token_count})
+
+
 async def _handle_message(request: Request, body: MessagesRequest):
     from kevlar.cli.display import console
     app = request.app
@@ -68,18 +123,15 @@ async def _handle_message(request: Request, body: MessagesRequest):
     tokenizer = app.state.tokenizer
     config = app.state.config
 
+    if engine is None or tokenizer is None:
+        return JSONResponse(status_code=503, content={
+            "type": "error",
+            "error": {"type": "overloaded_error", "message": "No model loaded"},
+        })
+
     msg_count = len(body.messages)
     has_tools = bool(body.tools)
     console.print(f"  [dim]  msgs={msg_count} tools={has_tools} stream={body.stream} think={body.thinking} max_tokens={body.max_tokens}[/dim]")
-
-    if not has_tools:
-        if body.stream:
-            return EventSourceResponse(
-                _empty_stream_response(body.model),
-                media_type="text/event-stream",
-                ping=3,
-            )
-        return JSONResponse(content=MessagesResponse(model=body.model, stop_reason="end_turn").model_dump())
 
     system_text = body.get_system_text()
 
@@ -96,7 +148,7 @@ async def _handle_message(request: Request, body: MessagesRequest):
 
     # parse thinking config -- cap budget for local models
     # claude code sends budget_tokens=31999 which is way too much for local inference
-    MAX_THINKING_BUDGET = 8000
+    MAX_THINKING_BUDGET = 16000
     thinking_enabled = True
     thinking_budget = 0
     thinking_display = "summarized"
@@ -139,14 +191,6 @@ async def _handle_message(request: Request, body: MessagesRequest):
             return await _complete_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_budget, thinking_enabled, show_thinking)
 
 
-async def _empty_stream_response(model: str) -> AsyncGenerator[dict, None]:
-    yield message_start_event(model=model, input_tokens=0)
-    yield content_block_start_event(index=0)
-    yield content_block_stop_event(index=0)
-    yield message_delta_event(stop_reason="end_turn", output_tokens=0)
-    yield message_stop_event()
-
-
 async def _stream_response(
     engine,
     prompt_tokens,
@@ -163,7 +207,12 @@ async def _stream_response(
     yield ping_event()
 
     if lock:
-        await lock.acquire()
+        while True:
+            try:
+                await asyncio.wait_for(lock.acquire(), timeout=3.0)
+                break
+            except asyncio.TimeoutError:
+                yield ping_event()
     try:
         if show_thinking:
             yield thinking_block_start_event(index=0)
@@ -181,6 +230,7 @@ async def _stream_response(
         think_sent = 0
         tool_region = False
         _THINK_TAG_LEN = len("</think>")
+        last_ping = time.monotonic()
 
         try:
             async for result in engine.generate(
@@ -231,6 +281,11 @@ async def _stream_response(
                     else:
                         yield content_block_delta_event(text=result.text, index=text_index)
 
+                now = time.monotonic()
+                if now - last_ping > 3.0:
+                    yield ping_event()
+                    last_ping = now
+
                 if result.finish_reason:
                     finish_reason = result.finish_reason
                     matched_stop_seq = result.stop_sequence
@@ -251,6 +306,10 @@ async def _stream_response(
         tool_calls = parse_tool_calls(clean_text) if body.tools else []
         if tool_calls:
             finish_reason = "tool_use"
+        elif tool_region:
+            remaining_text = strip_tool_xml(clean_text).strip()
+            if remaining_text:
+                yield content_block_delta_event(text=remaining_text, index=text_index)
 
         yield content_block_stop_event(index=text_index)
 
@@ -308,7 +367,7 @@ async def _complete_response(
     if thinking_enabled:
         thinking_text, remaining = extract_thinking(full_text)
         if thinking_text and show_thinking:
-            content.append(ThinkingContent(thinking=thinking_text))
+            content.append(ThinkingContent(thinking=thinking_text, signature="kevlar-local"))
         tool_calls = parse_tool_calls(strip_thinking(full_text)) if body.tools else []
         clean_text = strip_tool_xml(remaining) if tool_calls else remaining
     else:
