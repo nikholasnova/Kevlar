@@ -13,3 +13,8 @@ venv/
 CLAUDE.md
 MEMORY.md
 .claude/
+
+# Swift build artifacts
+KevlarApp/.build/
+Kevlar.app/
+.DS_Store
