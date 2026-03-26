@@ -96,7 +96,7 @@ async def _handle_message(request: Request, body: MessagesRequest):
 
     # parse thinking config -- cap budget for local models
     # claude code sends budget_tokens=31999 which is way too much for local inference
-    MAX_THINKING_BUDGET = 4000
+    MAX_THINKING_BUDGET = 8000
     thinking_enabled = True
     thinking_budget = 0
     thinking_display = "summarized"
@@ -121,24 +121,22 @@ async def _handle_message(request: Request, body: MessagesRequest):
 
     temperature = body.temperature if body.temperature is not None else config.default_temperature
     top_p = body.top_p if body.top_p is not None else config.default_top_p
-    max_tokens = min(body.max_tokens or config.default_max_tokens, config.default_max_tokens)
-
-    if thinking_enabled and thinking_budget > 0:
-        max_tokens = max_tokens + thinking_budget
+    max_tokens = max(body.max_tokens or 0, config.default_max_tokens)
 
     lock = app.state._inference_lock
 
     show_thinking = thinking_enabled and thinking_display != "omitted"
+    console.print(f"  [dim]  budget: client_max={body.max_tokens} think={thinking_budget} total={max_tokens + thinking_budget} prompt_tokens={prompt_tokens.size}[/dim]")
 
     if body.stream:
         return EventSourceResponse(
-            _stream_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_enabled, show_thinking, lock),
+            _stream_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_budget, thinking_enabled, show_thinking, lock),
             media_type="text/event-stream",
             ping=3,
         )
     else:
         async with lock:
-            return await _complete_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_enabled, show_thinking)
+            return await _complete_response(engine, prompt_tokens, body, temperature, top_p, max_tokens, thinking_budget, thinking_enabled, show_thinking)
 
 
 async def _empty_stream_response(model: str) -> AsyncGenerator[dict, None]:
@@ -156,6 +154,7 @@ async def _stream_response(
     temperature: float,
     top_p: float,
     max_tokens: int,
+    thinking_budget: int = 0,
     thinking_enabled: bool = False,
     show_thinking: bool = False,
     lock: asyncio.Lock = None,
@@ -183,56 +182,61 @@ async def _stream_response(
         tool_region = False
         _THINK_TAG_LEN = len("</think>")
 
-        async for result in engine.generate(
-            prompt_tokens=prompt_tokens,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=body.top_k,
-            stop_sequences=body.stop_sequences,
-        ):
-            output_tokens += 1
+        try:
+            async for result in engine.generate(
+                prompt_tokens=prompt_tokens,
+                max_tokens=max_tokens,
+                thinking_budget=thinking_budget,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=body.top_k,
+                stop_sequences=body.stop_sequences,
+            ):
+                output_tokens += 1
 
-            if not result.text:
+                if not result.text:
+                    if result.finish_reason:
+                        finish_reason = result.finish_reason
+                        matched_stop_seq = result.stop_sequence
+                    continue
+
+                full_text += result.text
+
+                if not thinking_done:
+                    think_buffer += result.text
+                    if "</think>" in think_buffer:
+                        thinking_done = True
+                        if show_thinking:
+                            before_tag = think_buffer.split("</think>", 1)[0]
+                            unsent = before_tag[think_sent:]
+                            if unsent:
+                                yield thinking_delta_event(thinking=unsent, index=0)
+                            yield signature_delta_event(signature="kevlar-local", index=0)
+                            yield content_block_stop_event(index=0)
+                            yield content_block_start_event(index=text_index)
+                        after_think = think_buffer.split("</think>", 1)[1].lstrip()
+                        if after_think:
+                            yield content_block_delta_event(text=after_think, index=text_index)
+                    elif show_thinking:
+                        safe_end = len(think_buffer) - _THINK_TAG_LEN
+                        if safe_end > think_sent:
+                            chunk = think_buffer[think_sent:safe_end]
+                            yield thinking_delta_event(thinking=chunk, index=0)
+                            think_sent = safe_end
+                    elif output_tokens % 20 == 0:
+                        yield ping_event()
+                elif not tool_region:
+                    if "<function=" in full_text or "<tool_call>" in full_text:
+                        tool_region = True
+                    else:
+                        yield content_block_delta_event(text=result.text, index=text_index)
+
                 if result.finish_reason:
                     finish_reason = result.finish_reason
                     matched_stop_seq = result.stop_sequence
-                continue
-
-            full_text += result.text
-
-            if not thinking_done:
-                think_buffer += result.text
-                if "</think>" in think_buffer:
-                    thinking_done = True
-                    if show_thinking:
-                        before_tag = think_buffer.split("</think>", 1)[0]
-                        unsent = before_tag[think_sent:]
-                        if unsent:
-                            yield thinking_delta_event(thinking=unsent, index=0)
-                        yield signature_delta_event(signature="kevlar-local", index=0)
-                        yield content_block_stop_event(index=0)
-                        yield content_block_start_event(index=text_index)
-                    after_think = think_buffer.split("</think>", 1)[1].lstrip()
-                    if after_think:
-                        yield content_block_delta_event(text=after_think, index=text_index)
-                elif show_thinking:
-                    safe_end = len(think_buffer) - _THINK_TAG_LEN
-                    if safe_end > think_sent:
-                        chunk = think_buffer[think_sent:safe_end]
-                        yield thinking_delta_event(thinking=chunk, index=0)
-                        think_sent = safe_end
-                elif output_tokens % 20 == 0:
-                    yield ping_event()
-            elif not tool_region:
-                if "<function=" in full_text or "<tool_call>" in full_text:
-                    tool_region = True
-                else:
-                    yield content_block_delta_event(text=result.text, index=text_index)
-
-            if result.finish_reason:
-                finish_reason = result.finish_reason
-                matched_stop_seq = result.stop_sequence
+        except Exception as e:
+            logger.error("Generation failed: %s: %s", type(e).__name__, e)
+            finish_reason = "end_turn"
 
         if not thinking_done and think_buffer:
             if show_thinking:
@@ -274,6 +278,7 @@ async def _complete_response(
     temperature: float,
     top_p: float,
     max_tokens: int,
+    thinking_budget: int = 0,
     thinking_enabled: bool = False,
     show_thinking: bool = False,
 ) -> JSONResponse:
@@ -285,6 +290,7 @@ async def _complete_response(
     async for result in engine.generate(
         prompt_tokens=prompt_tokens,
         max_tokens=max_tokens,
+        thinking_budget=thinking_budget,
         temperature=temperature,
         top_p=top_p,
         top_k=body.top_k,

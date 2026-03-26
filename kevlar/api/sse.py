@@ -33,10 +33,20 @@ def _sse(event_type: str, data: Any) -> dict:
     return {"event": event_type, "data": payload}
 
 
-def message_start_event(model: str, input_tokens: int = 0) -> dict:
+def message_start_event(
+    model: str,
+    input_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
+) -> dict:
     response = MessagesResponse(
         model=model,
-        usage=Usage(input_tokens=input_tokens, output_tokens=0),
+        usage=Usage(
+            input_tokens=input_tokens,
+            output_tokens=0,
+            cache_read_input_tokens=cache_read_input_tokens,
+            cache_creation_input_tokens=cache_creation_input_tokens,
+        ),
     )
     event = MessageStartEvent(message=response)
     return _sse("message_start", event)

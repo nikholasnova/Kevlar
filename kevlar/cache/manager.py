@@ -91,6 +91,7 @@ class CacheManager:
             for new_c, old_c in zip(new_cache, cache_state):
                 keys, values = old_c.state
                 new_c.state = (mx.array(keys), mx.array(values))
+            mx.eval([c.state for c in new_cache])
             return new_cache
 
         # ArraysCache or other types -- make fresh cache and copy state
@@ -103,6 +104,10 @@ class CacheManager:
                 new_c.state = tuple(mx.array(s) if s is not None else None for s in old_state)
             else:
                 new_c.state = old_state
+
+        # materialize all lazy copies so background threads (SSD save)
+        # never trigger mx.eval concurrently with inference
+        mx.eval([c.state for c in new_cache])
         return new_cache
 
     def _trim_cache(self, cache: list, target_len: int):

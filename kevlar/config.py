@@ -13,7 +13,7 @@ class KevlarConfig:
     ssd_cache_max_gb: float = 10.0
 
     prefill_step_size: int = 4096
-    default_max_tokens: int = 4096
+    default_max_tokens: int = 131072
     default_temperature: float = 0.7
     default_top_p: float = 0.9
 

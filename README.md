@@ -44,7 +44,7 @@ kevlar serve --model <hf-id-or-path> \
              --port 8080 \
              --cache-dir ~/.kevlar/cache \
              --max-cache-gb 10 \
-             --max-tokens 4096 \
+             --max-tokens 131072 \
              --prefill-step-size 4096 \
              --no-normalize
 ```
@@ -120,7 +120,7 @@ kevlar/
 
 Models with chain-of-thought reasoning (Qwen3.5, Qwen3-Coder-Next, DeepSeek, etc.) generate thinking traces before answering. Kevlar detects whether the model's chat template produces `<think>` markers and streams them as proper Anthropic thinking content blocks -- visible and expandable in Claude Code's UI. The `thinking.display` field is respected: `"summarized"` (default) shows thinking, `"omitted"` hides it. Models without thinking support are handled transparently.
 
-The thinking budget is capped at 4000 tokens locally (Claude Code requests 32k which is impractical for local inference).
+The thinking budget is capped at 8000 tokens locally (Claude Code requests 32k which is impractical for local inference). Thinking tokens have their own budget and don't consume the content output limit.
 
 ### Cache strategy
 

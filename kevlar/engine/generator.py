@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import time
 from dataclasses import dataclass
@@ -109,15 +110,26 @@ class InferenceEngine:
         logger.info("Prefill done: %.2fs (%.0f tok/s)", elapsed, total / elapsed if elapsed > 0 else 0)
         return logits
 
+    def _log_memory(self, label: str):
+        try:
+            import psutil
+            rss = psutil.Process().memory_info().rss / 1e9
+            metal = mx.metal.get_active_memory() / 1e9 if hasattr(mx.metal, "get_active_memory") else -1
+            logger.info("[%s] RSS=%.1fGB Metal=%.1fGB", label, rss, metal)
+        except Exception:
+            pass
+
     async def generate(
         self,
         prompt_tokens: mx.array,
-        max_tokens: int = 4096,
+        max_tokens: int = 32768,
+        thinking_budget: int = 0,
         temperature: float = 0.7,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
         stop_sequences: Optional[list[str]] = None,
     ) -> AsyncGenerator[GenerationResult, None]:
+        self._log_memory("gen-start")
         stats = GenerationStats(prompt_tokens=prompt_tokens.size)
 
         cache, cache_hit_len = self.cache_manager.get_or_create_cache(prompt_tokens)
@@ -141,7 +153,13 @@ class InferenceEngine:
         decode_start = time.perf_counter()
         detokenizer = self.tokenizer.detokenizer
 
-        for i in range(max_tokens):
+        # separate thinking and content budgets
+        total_budget = max_tokens + thinking_budget
+        in_thinking = thinking_budget > 0
+        content_tokens = 0
+        finish_reason_final = None
+
+        for i in range(total_budget):
             tid = token_id.item()
             stats.completion_tokens += 1
 
@@ -150,6 +168,13 @@ class InferenceEngine:
                 detokenizer.add_token(tid)
             piece = detokenizer.last_segment if not is_eos else ""
             generated_text += piece
+
+            # detect end of thinking phase
+            if in_thinking and "</think>" in generated_text:
+                in_thinking = False
+
+            if not in_thinking:
+                content_tokens += 1
 
             finish_reason = None
             matched_stop = None
@@ -161,7 +186,11 @@ class InferenceEngine:
                         finish_reason = "stop_sequence"
                         matched_stop = s
                         break
-            if not finish_reason and i == max_tokens - 1:
+            # enforce max_tokens on content tokens only
+            if not finish_reason and not in_thinking and content_tokens >= max_tokens:
+                finish_reason = "max_tokens"
+            # safety: enforce total budget
+            if not finish_reason and i == total_budget - 1:
                 finish_reason = "max_tokens"
 
             yield GenerationResult(
@@ -173,6 +202,7 @@ class InferenceEngine:
             )
 
             if finish_reason:
+                finish_reason_final = finish_reason
                 break
 
             logits = self.model(token_id.reshape(1, 1), cache=cache)
@@ -187,9 +217,20 @@ class InferenceEngine:
             yield GenerationResult(token_id=0, text=remaining_text, is_eos=False)
 
         stats.decode_time_s = time.perf_counter() - decode_start
+        logger.warning(
+            "Generation done: %d tokens (think=%d content=%d), reason=%s, budget=%d+%d",
+            stats.completion_tokens,
+            stats.completion_tokens - content_tokens,
+            content_tokens,
+            finish_reason_final or "unknown",
+            max_tokens,
+            thinking_budget,
+        )
 
         self.cache_manager.checkpoint(prompt_tokens, prompt_cache)
         self.last_stats = stats
+        gc.collect()
+        self._log_memory("gen-end")
 
         if self.on_complete:
             self.on_complete(stats)

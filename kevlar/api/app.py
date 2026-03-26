@@ -63,6 +63,7 @@ def create_app(config: KevlarConfig) -> FastAPI:
             level=logging.WARNING,
             format="%(asctime)s %(name)s %(levelname)s %(message)s",
         )
+        logging.getLogger("kevlar").setLevel(logging.INFO)
 
         loader = ModelLoader(config.model_path)
         with print_model_loading():
